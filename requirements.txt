@@ -1,0 +1,26 @@
+# Penny Stock Screener Dependencies
+
+# Core data analysis
+pandas>=1.3.0
+numpy>=1.16.5
+
+# Financial data APIs
+yfinance>=0.2.0
+finvizfinance>=1.1.0
+
+# Web scraping
+requests>=2.31.0
+beautifulsoup4>=4.11.0
+lxml>=4.6.0
+
+# Reddit integration
+praw>=7.7.0
+
+# Environment variables
+python-dotenv>=0.19.0
+
+# Scientific computing (for Greeks calculations)
+scipy>=1.7.0
+
+# Additional utilities
+tqdm>=4.64.0 

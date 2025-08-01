@@ -17,9 +17,7 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install praw
+        run: pip install -r requirements.txt 
 
       - name: Post to Reddit
         env:

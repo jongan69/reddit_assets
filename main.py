@@ -11,6 +11,7 @@ import praw
 from datetime import datetime
 from dotenv import load_dotenv
 import os
+
 load_dotenv()
 
 REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
