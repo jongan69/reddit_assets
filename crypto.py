@@ -262,7 +262,7 @@ def generate_market_summary():
 
 # --- Post to Reddit ---
 def post_to_reddit(text):
-    title = f"Market update for {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    title = f"🚀 Crypto Market Update - {datetime.datetime.now().strftime('%Y-%m-%d')}"
     subreddit = reddit.subreddit(REDDIT_SUBREDDIT)
     post = subreddit.submit(title=title, selftext=text)
     print(f"✅ Posted to Reddit: {post.shortlink}")
