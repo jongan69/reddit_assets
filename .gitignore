@@ -7,3 +7,9 @@ myenv/
 .env.development.local
 .env.test.local
 .env.production.local
+bin/
+lib/
+include/
+lib64/
+pyvenv.cfg
+pyvenv.cfg

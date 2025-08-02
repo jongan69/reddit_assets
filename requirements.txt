@@ -23,4 +23,7 @@ python-dotenv>=0.19.0
 scipy>=1.7.0
 
 # Additional utilities
-tqdm>=4.64.0 
+tqdm>=4.64.0
+
+# Crypto analysis dependencies
+sseclient-py>=1.7.2 
