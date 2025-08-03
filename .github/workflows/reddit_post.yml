@@ -1,9 +1,20 @@
 name: Reddit Post
 on:
   schedule:
-    - cron: '30 14 * * *'  # 9:30 AM EST (14:30 UTC)
-    - cron: '0 17 * * *'   # 12:00 PM EST (17:00 UTC)
-    - cron: '0 5 * * *'    # 12:00 AM EST (05:00 UTC)
+    # Morning peak: 7-10 AM EST (12-15 UTC)
+    - cron: '0 12 * * 1-5'   # 8:00 AM EST (12:00 UTC) - Monday to Friday
+    - cron: '30 13 * * 1-5'  # 9:30 AM EST (13:30 UTC) - Monday to Friday
+    - cron: '0 15 * * 1-5'   # 11:00 AM EST (15:00 UTC) - Monday to Friday
+    
+    # Lunch break peak: 11 AM-2 PM EST (15-18 UTC)
+    - cron: '30 16 * * 1-5'  # 12:30 PM EST (16:30 UTC) - Monday to Friday
+    - cron: '0 18 * * 1-5'   # 2:00 PM EST (18:00 UTC) - Monday to Friday
+    
+    # Evening peak: 6-10 PM EST (22-02 UTC)
+    - cron: '0 22 * * 1-5'   # 6:00 PM EST (22:00 UTC) - Monday to Friday
+    - cron: '30 23 * * 1-5'  # 7:30 PM EST (23:30 UTC) - Monday to Friday
+    - cron: '0 1 * * 2-6'    # 9:00 PM EST (01:00 UTC next day) - Monday to Friday
+    - cron: '30 2 * * 2-6'   # 10:30 PM EST (02:30 UTC next day) - Monday to Friday
   workflow_dispatch: # Allow manual triggering
 
 jobs:
