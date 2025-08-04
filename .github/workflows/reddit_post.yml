@@ -15,7 +15,23 @@ on:
     - cron: '30 23 * * 1-5'  # 7:30 PM EST (23:30 UTC) - Monday to Friday
     - cron: '0 1 * * 2-6'    # 9:00 PM EST (01:00 UTC next day) - Monday to Friday
     - cron: '30 2 * * 2-6'   # 10:30 PM EST (02:30 UTC next day) - Monday to Friday
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      run_crypto_analysis:
+        description: 'Run Crypto Market Analysis'
+        required: false
+        default: true
+        type: boolean
+      run_penny_stock_screener:
+        description: 'Run Penny Stock Screener'
+        required: false
+        default: true
+        type: boolean
+      debug_mode:
+        description: 'Enable debug mode for additional logging'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   post_to_reddit:
@@ -33,19 +49,23 @@ jobs:
         run: pip install -r requirements.txt 
 
       - name: Run Crypto Market Analysis
+        if: ${{ inputs.run_crypto_analysis != 'false' }}
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
           REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          DEBUG_MODE: ${{ inputs.debug_mode }}
         run: |
           python crypto.py
 
       - name: Run Penny Stock Screener
+        if: ${{ inputs.run_penny_stock_screener != 'false' }}
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
           REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          DEBUG_MODE: ${{ inputs.debug_mode }}
         run: |
           python main.py
