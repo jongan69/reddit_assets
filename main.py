@@ -19,6 +19,819 @@ REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET')
 REDDIT_USERNAME = os.getenv('REDDIT_USERNAME')
 REDDIT_PASSWORD = os.getenv('REDDIT_PASSWORD')
 
+# Kelly Criterion Portfolio Allocation Functions
+def calculate_kelly_fraction(p, g, l):
+    """
+    Calculate Kelly Criterion fraction for single asset allocation
+    
+    Parameters:
+    p: probability of winning (0-1)
+    g: fractional gain if win (e.g., 0.10 for 10% gain)
+    l: fractional loss if lose (e.g., 0.10 for 10% loss)
+    
+    Returns:
+    f*: optimal fraction of capital to allocate
+    """
+    q = 1 - p  # probability of losing
+    
+    # Kelly formula: f* = (bp - q) / b
+    # where b = g/l (net odds)
+    if l == 0:
+        return 0  # Avoid division by zero
+    
+    b = g / l  # net odds
+    kelly_fraction = (b * p - q) / b
+    
+    return max(0, kelly_fraction)  # Don't allow negative allocations
+
+def calculate_portfolio_kelly(returns_matrix, risk_free_rate=0.05):
+    """
+    Calculate Kelly Criterion for multi-asset portfolio
+    
+    Parameters:
+    returns_matrix: DataFrame with assets as columns and historical returns as rows
+    risk_free_rate: risk-free rate (default 5%)
+    
+    Returns:
+    weights: optimal portfolio weights
+    """
+    try:
+        # Calculate excess returns
+        excess_returns = returns_matrix - risk_free_rate
+        
+        # Calculate mean excess returns and covariance matrix
+        mu = excess_returns.mean()
+        sigma = excess_returns.cov()
+        
+        # Kelly portfolio weights: w* = Σ^(-1) * μ
+        sigma_inv = np.linalg.inv(sigma.values)
+        kelly_weights = sigma_inv @ mu.values
+        
+        # Normalize weights to sum to 1
+        kelly_weights = kelly_weights / np.sum(np.abs(kelly_weights))
+        
+        return pd.Series(kelly_weights, index=returns_matrix.columns)
+        
+    except Exception as e:
+        print(f"Error calculating portfolio Kelly: {e}")
+        return None
+
+def estimate_stock_probabilities(ticker, lookback_days=252):
+    """
+    Estimate win probability and gain/loss parameters for a stock
+    
+    Parameters:
+    ticker: stock symbol
+    lookback_days: number of days to look back for historical data
+    
+    Returns:
+    dict: containing p, g, l, and Kelly fraction
+    """
+    try:
+        yft = yf.Ticker(ticker)
+        hist = yft.history(period=f'{lookback_days}d')
+        
+        if len(hist) < 30:  # Need at least 30 days of data
+            return None
+        
+        # Calculate daily returns
+        returns = hist['Close'].pct_change().dropna()
+        
+        # Estimate win probability (positive returns)
+        p = (returns > 0).mean()
+        
+        # Calculate average gain and loss
+        gains = returns[returns > 0]
+        losses = returns[returns < 0]
+        
+        if len(gains) == 0 or len(losses) == 0:
+            return None
+        
+        g = gains.mean()  # Average gain
+        l = abs(losses.mean())  # Average loss (absolute value)
+        
+        # Calculate Kelly fraction
+        kelly_fraction = calculate_kelly_fraction(p, g, l)
+        
+        # Calculate volatility
+        volatility = returns.std()
+        
+        # Calculate Sharpe ratio
+        sharpe_ratio = (returns.mean() - 0.05/252) / volatility if volatility > 0 else 0
+        
+        return {
+            'ticker': ticker,
+            'win_probability': p,
+            'avg_gain': g,
+            'avg_loss': l,
+            'kelly_fraction': kelly_fraction,
+            'volatility': volatility,
+            'sharpe_ratio': sharpe_ratio,
+            'total_return': (hist['Close'].iloc[-1] / hist['Close'].iloc[0] - 1),
+            'max_drawdown': calculate_max_drawdown(hist['Close'])
+        }
+        
+    except Exception as e:
+        print(f"Error estimating probabilities for {ticker}: {e}")
+        return None
+
+def calculate_max_drawdown(prices):
+    """Calculate maximum drawdown from peak"""
+    peak = prices.expanding().max()
+    drawdown = (prices - peak) / peak
+    return drawdown.min()
+
+def calculate_scaled_kelly(kelly_fraction, scaling_factor=0.5):
+    """
+    Calculate scaled Kelly fraction to reduce volatility
+    
+    Parameters:
+    kelly_fraction: full Kelly fraction
+    scaling_factor: fraction of Kelly to use (0.5 = half Kelly)
+    
+    Returns:
+    scaled_fraction: scaled Kelly allocation
+    """
+    return kelly_fraction * scaling_factor
+
+def calculate_portfolio_allocation(stocks_data, portfolio_value=1000, scaling_factor=0.5):
+    """
+    Calculate optimal portfolio allocation using Kelly Criterion
+    
+    Parameters:
+    stocks_data: list of stock analysis dictionaries
+    portfolio_value: total portfolio value in dollars
+    scaling_factor: Kelly scaling factor (0.5 = half Kelly)
+    
+    Returns:
+    dict: portfolio allocation details
+    """
+    allocations = []
+    total_allocation = 0
+    
+    for stock in stocks_data:
+        ticker = stock['Ticker']
+        
+        # Get Kelly analysis
+        kelly_data = estimate_stock_probabilities(ticker)
+        
+        if kelly_data and kelly_data['kelly_fraction'] > 0:
+            # Calculate scaled Kelly allocation
+            scaled_kelly = calculate_scaled_kelly(kelly_data['kelly_fraction'], scaling_factor)
+            
+            # Calculate dollar allocation
+            dollar_allocation = scaled_kelly * portfolio_value
+            
+            # Don't allocate more than 20% to any single stock
+            max_allocation = portfolio_value * 0.20
+            dollar_allocation = min(dollar_allocation, max_allocation)
+            
+            if dollar_allocation > 10:  # Only include if allocation > $10
+                allocations.append({
+                    'ticker': ticker,
+                    'current_price': stock['Current_Price'],
+                    'kelly_fraction': kelly_data['kelly_fraction'],
+                    'scaled_kelly': scaled_kelly,
+                    'dollar_allocation': dollar_allocation,
+                    'shares_to_buy': int(dollar_allocation / stock['Current_Price']),
+                    'win_probability': kelly_data['win_probability'],
+                    'avg_gain': kelly_data['avg_gain'],
+                    'avg_loss': kelly_data['avg_loss'],
+                    'volatility': kelly_data['volatility'],
+                    'sharpe_ratio': kelly_data['sharpe_ratio'],
+                    'doubling_score': stock['Doubling_Score'],
+                    'reasons': stock['Reasons']
+                })
+                
+                total_allocation += dollar_allocation
+    
+    # Sort by Kelly fraction (highest first)
+    allocations.sort(key=lambda x: x['kelly_fraction'], reverse=True)
+    
+    return {
+        'allocations': allocations,
+        'total_allocated': total_allocation,
+        'cash_remaining': portfolio_value - total_allocation,
+        'allocation_percentage': (total_allocation / portfolio_value) * 100
+    }
+
+def calculate_risk_metrics(portfolio_allocation):
+    """
+    Calculate risk metrics for the portfolio allocation
+    
+    Parameters:
+    portfolio_allocation: portfolio allocation dictionary
+    
+    Returns:
+    dict: risk metrics
+    """
+    allocations = portfolio_allocation['allocations']
+    
+    if not allocations:
+        return {}
+    
+    # Calculate portfolio-level metrics
+    total_value = sum(alloc['dollar_allocation'] for alloc in allocations)
+    
+    # Weighted average metrics
+    weighted_volatility = sum(
+        alloc['volatility'] * (alloc['dollar_allocation'] / total_value) 
+        for alloc in allocations
+    )
+    
+    weighted_sharpe = sum(
+        alloc['sharpe_ratio'] * (alloc['dollar_allocation'] / total_value) 
+        for alloc in allocations
+    )
+    
+    # Calculate expected return (simplified)
+    expected_return = sum(
+        alloc['win_probability'] * alloc['avg_gain'] * (alloc['dollar_allocation'] / total_value)
+        for alloc in allocations
+    )
+    
+    # Calculate maximum drawdown estimate (simplified)
+    max_dd_estimate = weighted_volatility * 2  # Rough estimate
+    
+    return {
+        'expected_return': expected_return,
+        'portfolio_volatility': weighted_volatility,
+        'portfolio_sharpe': weighted_sharpe,
+        'max_drawdown_estimate': max_dd_estimate,
+        'number_of_positions': len(allocations),
+        'concentration_risk': max(alloc['dollar_allocation'] for alloc in allocations) / total_value if allocations else 0
+    }
+
+# Confidence-Weighted Kelly Criterion Functions
+def calculate_confidence_interval(returns, confidence_level=0.95):
+    """
+    Calculate confidence interval for probability estimates
+    
+    Parameters:
+    returns: array of historical returns
+    confidence_level: confidence level (e.g., 0.95 for 95%)
+    
+    Returns:
+    dict: confidence interval statistics
+    """
+    try:
+        from scipy import stats
+        
+        # Calculate win probability
+        wins = (returns > 0).sum()
+        total = len(returns)
+        p_hat = wins / total
+        
+        # Calculate standard error
+        se = np.sqrt(p_hat * (1 - p_hat) / total)
+        
+        # Calculate confidence interval
+        z_score = stats.norm.ppf((1 + confidence_level) / 2)
+        margin_of_error = z_score * se
+        
+        lower_bound = max(0, p_hat - margin_of_error)
+        upper_bound = min(1, p_hat + margin_of_error)
+        
+        # Calculate confidence level based on sample size
+        # More data = higher confidence
+        sample_confidence = min(0.95, 0.5 + (total / 1000) * 0.4)  # 50% to 95% based on sample size
+        
+        return {
+            'point_estimate': p_hat,
+            'lower_bound': lower_bound,
+            'upper_bound': upper_bound,
+            'margin_of_error': margin_of_error,
+            'confidence_level': confidence_level,
+            'sample_confidence': sample_confidence,
+            'sample_size': total
+        }
+        
+    except Exception as e:
+        print(f"Error calculating confidence interval: {e}")
+        return None
+
+def calculate_confidence_weighted_kelly(p_estimate, g_estimate, l_estimate, 
+                                      p_confidence, g_confidence, l_confidence,
+                                      risk_aversion=1.0):
+    """
+    Calculate Kelly fraction weighted by confidence in estimates
+    
+    Parameters:
+    p_estimate: point estimate of win probability
+    g_estimate: point estimate of gain
+    l_estimate: point estimate of loss
+    p_confidence: confidence in probability estimate (0-1)
+    g_confidence: confidence in gain estimate (0-1)
+    l_confidence: confidence in loss estimate (0-1)
+    risk_aversion: risk aversion factor (higher = more conservative)
+    
+    Returns:
+    dict: confidence-weighted Kelly results
+    """
+    # Calculate base Kelly
+    base_kelly = calculate_kelly_fraction(p_estimate, g_estimate, l_estimate)
+    
+    # Calculate confidence-weighted adjustments
+    # Lower confidence = more conservative allocation
+    confidence_factor = (p_confidence + g_confidence + l_confidence) / 3
+    
+    # Risk aversion adjustment
+    risk_adjustment = 1 / (1 + risk_aversion * (1 - confidence_factor))
+    
+    # Calculate conservative Kelly using worst-case estimates
+    # Use lower bound for gains, upper bound for losses
+    conservative_p = p_estimate * p_confidence
+    conservative_g = g_estimate * g_confidence
+    conservative_l = l_estimate / l_confidence if l_confidence > 0 else l_estimate * 2
+    
+    conservative_kelly = calculate_kelly_fraction(conservative_p, conservative_g, conservative_l)
+    
+    # Calculate optimistic Kelly using best-case estimates
+    optimistic_p = p_estimate + (1 - p_confidence) * 0.1  # Slight upward bias
+    optimistic_g = g_estimate + (1 - g_confidence) * 0.05
+    optimistic_l = l_estimate * (1 - (1 - l_confidence) * 0.5)
+    
+    optimistic_kelly = calculate_kelly_fraction(optimistic_p, optimistic_g, optimistic_l)
+    
+    # Final confidence-weighted Kelly
+    confidence_weighted_kelly = base_kelly * confidence_factor * risk_adjustment
+    
+    return {
+        'base_kelly': base_kelly,
+        'confidence_weighted_kelly': confidence_weighted_kelly,
+        'conservative_kelly': conservative_kelly,
+        'optimistic_kelly': optimistic_kelly,
+        'confidence_factor': confidence_factor,
+        'risk_adjustment': risk_adjustment,
+        'p_confidence': p_confidence,
+        'g_confidence': g_confidence,
+        'l_confidence': l_confidence
+    }
+
+def estimate_stock_probabilities_with_confidence(ticker, lookback_days=252, confidence_level=0.95):
+    """
+    Estimate stock probabilities with confidence intervals
+    
+    Parameters:
+    ticker: stock symbol
+    lookback_days: number of days to look back
+    confidence_level: confidence level for intervals
+    
+    Returns:
+    dict: probability estimates with confidence intervals
+    """
+    try:
+        yft = yf.Ticker(ticker)
+        hist = yft.history(period=f'{lookback_days}d')
+        
+        if len(hist) < 30:
+            return None
+        
+        # Calculate daily returns
+        returns = hist['Close'].pct_change().dropna()
+        
+        # Calculate probability confidence
+        prob_confidence = calculate_confidence_interval(returns, confidence_level)
+        
+        if not prob_confidence:
+            return None
+        
+        # Estimate win probability
+        p = prob_confidence['point_estimate']
+        p_confidence = prob_confidence['sample_confidence']
+        
+        # Calculate average gain and loss
+        gains = returns[returns > 0]
+        losses = returns[returns < 0]
+        
+        if len(gains) == 0 or len(losses) == 0:
+            return None
+        
+        g = gains.mean()
+        l = abs(losses.mean())
+        
+        # Estimate confidence in gain/loss estimates based on sample size
+        g_confidence = min(0.95, 0.5 + (len(gains) / 500) * 0.4)
+        l_confidence = min(0.95, 0.5 + (len(losses) / 500) * 0.4)
+        
+        # Calculate confidence-weighted Kelly
+        kelly_results = calculate_confidence_weighted_kelly(
+            p, g, l, p_confidence, g_confidence, l_confidence
+        )
+        
+        # Calculate volatility
+        volatility = returns.std()
+        
+        # Calculate Sharpe ratio
+        sharpe_ratio = (returns.mean() - 0.05/252) / volatility if volatility > 0 else 0
+        
+        return {
+            'ticker': ticker,
+            'win_probability': p,
+            'win_probability_confidence': p_confidence,
+            'win_probability_ci': (prob_confidence['lower_bound'], prob_confidence['upper_bound']),
+            'avg_gain': g,
+            'avg_gain_confidence': g_confidence,
+            'avg_loss': l,
+            'avg_loss_confidence': l_confidence,
+            'volatility': volatility,
+            'kelly_results': kelly_results,
+            'sharpe_ratio': sharpe_ratio,
+            'total_return': (hist['Close'].iloc[-1] / hist['Close'].iloc[0] - 1),
+            'max_drawdown': calculate_max_drawdown(hist['Close']),
+            'sample_size': len(returns)
+        }
+        
+    except Exception as e:
+        print(f"Error estimating probabilities with confidence for {ticker}: {e}")
+        return None
+
+def calculate_confidence_weighted_portfolio_allocation(stocks_data, portfolio_value=1000, 
+                                                     scaling_factor=0.5, risk_aversion=1.0):
+    """
+    Calculate portfolio allocation using confidence-weighted Kelly Criterion
+    
+    Parameters:
+    stocks_data: list of stock analysis dictionaries
+    portfolio_value: total portfolio value
+    scaling_factor: Kelly scaling factor
+    risk_aversion: risk aversion factor (higher = more conservative)
+    
+    Returns:
+    dict: confidence-weighted portfolio allocation
+    """
+    allocations = []
+    total_allocation = 0
+    
+    for stock in stocks_data:
+        ticker = stock['Ticker']
+        
+        # Get confidence-weighted Kelly analysis
+        kelly_data = estimate_stock_probabilities_with_confidence(ticker)
+        
+        if kelly_data and kelly_data['kelly_results']['confidence_weighted_kelly'] > 0:
+            # Use confidence-weighted Kelly
+            confidence_kelly = kelly_data['kelly_results']['confidence_weighted_kelly']
+            
+            # Apply scaling
+            scaled_kelly = calculate_scaled_kelly(confidence_kelly, scaling_factor)
+            
+            # Calculate dollar allocation
+            dollar_allocation = scaled_kelly * portfolio_value
+            
+            # Position limits based on confidence
+            confidence_factor = kelly_data['kelly_results']['confidence_factor']
+            max_allocation = portfolio_value * (0.20 * confidence_factor)  # Higher confidence = higher limit
+            dollar_allocation = min(dollar_allocation, max_allocation)
+            
+            # Minimum allocation based on confidence
+            min_allocation = 10 * confidence_factor  # Higher confidence = higher minimum
+            if dollar_allocation > min_allocation:
+                allocations.append({
+                    'ticker': ticker,
+                    'current_price': stock['Current_Price'],
+                    'base_kelly': kelly_data['kelly_results']['base_kelly'],
+                    'confidence_weighted_kelly': confidence_kelly,
+                    'scaled_kelly': scaled_kelly,
+                    'dollar_allocation': dollar_allocation,
+                    'shares_to_buy': int(dollar_allocation / stock['Current_Price']),
+                    'win_probability': kelly_data['win_probability'],
+                    'win_probability_confidence': kelly_data['win_probability_confidence'],
+                    'avg_gain': kelly_data['avg_gain'],
+                    'avg_gain_confidence': kelly_data['avg_gain_confidence'],
+                    'avg_loss': kelly_data['avg_loss'],
+                    'avg_loss_confidence': kelly_data['avg_loss_confidence'],
+                    'volatility': kelly_data['volatility'],
+                    'confidence_factor': kelly_data['kelly_results']['confidence_factor'],
+                    'sharpe_ratio': kelly_data['sharpe_ratio'],
+                    'doubling_score': stock['Doubling_Score'],
+                    'reasons': stock['Reasons'],
+                    'sample_size': kelly_data['sample_size']
+                })
+                
+                total_allocation += dollar_allocation
+    
+    # Sort by confidence-weighted Kelly fraction (highest first)
+    allocations.sort(key=lambda x: x['confidence_weighted_kelly'], reverse=True)
+    
+    return {
+        'allocations': allocations,
+        'total_allocated': total_allocation,
+        'cash_remaining': portfolio_value - total_allocation,
+        'allocation_percentage': (total_allocation / portfolio_value) * 100
+    }
+
+def display_confidence_weighted_allocation(portfolio_allocation, portfolio_value=1000):
+    """
+    Display confidence-weighted Kelly portfolio allocation results
+    
+    Parameters:
+    portfolio_allocation: portfolio allocation dictionary
+    portfolio_value: total portfolio value
+    """
+    print(f"\n🎯 CONFIDENCE-WEIGHTED KELLY PORTFOLIO ALLOCATION (${portfolio_value:,})")
+    print("=" * 120)
+    
+    allocations = portfolio_allocation['allocations']
+    
+    if not allocations:
+        print("❌ No suitable allocations found based on confidence-weighted Kelly Criterion")
+        return
+    
+    print(f"📊 PORTFOLIO SUMMARY:")
+    print(f"   Total Allocated: ${portfolio_allocation['total_allocated']:.2f}")
+    print(f"   Cash Remaining: ${portfolio_allocation['cash_remaining']:.2f}")
+    print(f"   Allocation %: {portfolio_allocation['allocation_percentage']:.1f}%")
+    print(f"   Number of Positions: {len(allocations)}")
+    
+    print(f"\n📈 CONFIDENCE-WEIGHTED ALLOCATION BREAKDOWN:")
+    print("-" * 140)
+    print(f"{'Rank':<4} {'Ticker':<8} {'Price':<8} {'Base%':<8} {'Conf%':<8} {'Scaled%':<8} {'Allocation':<12} {'Shares':<8} {'Win%':<6} {'Conf':<5} {'Gain%':<7} {'Conf':<5} {'Loss%':<7} {'Conf':<5} {'Sample':<6}")
+    print("-" * 140)
+    
+    for i, alloc in enumerate(allocations, 1):
+        print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+              f"{alloc['base_kelly']:<7.1%} {alloc['confidence_weighted_kelly']:<7.1%} "
+              f"{alloc['scaled_kelly']:<7.1%} ${alloc['dollar_allocation']:<11.2f} "
+              f"{alloc['shares_to_buy']:<8} {alloc['win_probability']:<5.1%} "
+              f"{alloc['win_probability_confidence']:<4.1%} {alloc['avg_gain']:<6.1%} "
+              f"{alloc['avg_gain_confidence']:<4.1%} {alloc['avg_loss']:<6.1%} "
+              f"{alloc['avg_loss_confidence']:<4.1%} {alloc['sample_size']:<6}")
+    
+    print(f"\n🎯 DETAILED CONFIDENCE ANALYSIS:")
+    print("-" * 120)
+    
+    for i, alloc in enumerate(allocations[:5], 1):  # Show top 5
+        print(f"\n🥇 #{i}: {alloc['ticker']} - Confidence-Weighted Kelly")
+        print(f"   Current Price: ${alloc['current_price']:.2f}")
+        print(f"   Base Kelly: {alloc['base_kelly']:.1%}")
+        print(f"   Confidence-Weighted Kelly: {alloc['confidence_weighted_kelly']:.1%}")
+        print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%}")
+        print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+        print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+        print(f"   Win Probability: {alloc['win_probability']:.1%} (Confidence: {alloc['win_probability_confidence']:.1%})")
+        print(f"   Average Gain: {alloc['avg_gain']:.1%} (Confidence: {alloc['avg_gain_confidence']:.1%})")
+        print(f"   Average Loss: {alloc['avg_loss']:.1%} (Confidence: {alloc['avg_loss_confidence']:.1%})")
+        print(f"   Volatility: {alloc['volatility']:.1%}")
+        print(f"   Overall Confidence Factor: {alloc['confidence_factor']:.1%}")
+        print(f"   Sample Size: {alloc['sample_size']} days")
+        print(f"   Doubling Score: {alloc['doubling_score']}")
+        print(f"   Reasons: {alloc['reasons']}")
+    
+    print(f"\n⚠️  CONFIDENCE-BASED RISK MANAGEMENT:")
+    print("-" * 60)
+    print("• Higher confidence = larger position sizes")
+    print("• Lower confidence = smaller position sizes")
+    print("• Sample size affects confidence levels")
+    print("• Confidence intervals provide uncertainty bounds")
+    print("• Risk aversion factor adjusts for conservative estimates")
+    print("• Recalculate confidence levels monthly with new data")
+
+def display_kelly_portfolio_allocation(portfolio_allocation, risk_metrics, portfolio_value=1000):
+    """
+    Display Kelly Criterion portfolio allocation results
+    
+    Parameters:
+    portfolio_allocation: portfolio allocation dictionary
+    risk_metrics: risk metrics dictionary
+    portfolio_value: total portfolio value
+    """
+    print(f"\n🎯 KELLY CRITERION PORTFOLIO ALLOCATION (${portfolio_value:,})")
+    print("=" * 100)
+    
+    allocations = portfolio_allocation['allocations']
+    
+    if not allocations:
+        print("❌ No suitable allocations found based on Kelly Criterion")
+        return
+    
+    print(f"📊 PORTFOLIO SUMMARY:")
+    print(f"   Total Allocated: ${portfolio_allocation['total_allocated']:.2f}")
+    print(f"   Cash Remaining: ${portfolio_allocation['cash_remaining']:.2f}")
+    print(f"   Allocation %: {portfolio_allocation['allocation_percentage']:.1f}%")
+    print(f"   Number of Positions: {len(allocations)}")
+    
+    if risk_metrics:
+        print(f"   Expected Return: {risk_metrics['expected_return']:.2%}")
+        print(f"   Portfolio Volatility: {risk_metrics['portfolio_volatility']:.2%}")
+        print(f"   Portfolio Sharpe Ratio: {risk_metrics['portfolio_sharpe']:.2f}")
+        print(f"   Max Drawdown Estimate: {risk_metrics['max_drawdown_estimate']:.2%}")
+        print(f"   Concentration Risk: {risk_metrics['concentration_risk']:.2%}")
+    
+    print(f"\n📈 ALLOCATION BREAKDOWN:")
+    print("-" * 100)
+    print(f"{'Rank':<4} {'Ticker':<8} {'Price':<8} {'Kelly%':<8} {'Scaled%':<8} {'Allocation':<12} {'Shares':<8} {'Win%':<6} {'Gain%':<7} {'Loss%':<7} {'Sharpe':<7}")
+    print("-" * 100)
+    
+    for i, alloc in enumerate(allocations, 1):
+        print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+              f"{alloc['kelly_fraction']:<7.1%} {alloc['scaled_kelly']:<7.1%} "
+              f"${alloc['dollar_allocation']:<11.2f} {alloc['shares_to_buy']:<8} "
+              f"{alloc['win_probability']:<5.1%} {alloc['avg_gain']:<6.1%} "
+              f"{alloc['avg_loss']:<6.1%} {alloc['sharpe_ratio']:<6.2f}")
+    
+    print(f"\n🎯 DETAILED ANALYSIS:")
+    print("-" * 100)
+    
+    for i, alloc in enumerate(allocations[:5], 1):  # Show top 5
+        print(f"\n🥇 #{i}: {alloc['ticker']} - Kelly Allocation")
+        print(f"   Current Price: ${alloc['current_price']:.2f}")
+        print(f"   Kelly Fraction: {alloc['kelly_fraction']:.1%} (Full Kelly)")
+        print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%} (Half Kelly)")
+        print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+        print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+        print(f"   Win Probability: {alloc['win_probability']:.1%}")
+        print(f"   Average Gain: {alloc['avg_gain']:.1%}")
+        print(f"   Average Loss: {alloc['avg_loss']:.1%}")
+        print(f"   Volatility: {alloc['volatility']:.1%}")
+        print(f"   Sharpe Ratio: {alloc['sharpe_ratio']:.2f}")
+        print(f"   Doubling Score: {alloc['doubling_score']}")
+        print(f"   Reasons: {alloc['reasons']}")
+    
+    print(f"\n⚠️  RISK MANAGEMENT NOTES:")
+    print("-" * 50)
+    print("• Using Half-Kelly (50% scaling) to reduce volatility")
+    print("• Maximum 20% allocation per position")
+    print("• Minimum $10 allocation per position")
+    print("• Cash remaining for opportunities and risk management")
+    print("• Rebalance monthly based on updated Kelly calculations")
+    print("• Monitor drawdowns and adjust scaling factor if needed")
+
+def calculate_options_kelly_allocation(options_data, portfolio_value=1000, scaling_factor=0.25):
+    """
+    Calculate Kelly Criterion allocation for options
+    
+    Parameters:
+    options_data: list of option opportunities
+    portfolio_value: total portfolio value
+    scaling_factor: Kelly scaling factor (more conservative for options)
+    
+    Returns:
+    dict: options allocation details
+    """
+    allocations = []
+    total_allocation = 0
+    
+    for opt in options_data:
+        ticker = opt['ticker']
+        
+        # Estimate option probabilities based on historical data
+        stock_data = estimate_stock_probabilities(ticker)
+        
+        if stock_data:
+            # For options, we need to estimate the probability of the stock moving enough
+            # to make the option profitable
+            
+            # Calculate probability of stock moving to different price levels
+            current_price = opt['current_price']
+            strike = opt['strike']
+            ask = opt['ask']
+            
+            # Estimate probability of stock moving 25%, 50%, 100%
+            # This is a simplified approach - in practice you'd use more sophisticated models
+            
+            # Use historical volatility to estimate move probabilities
+            volatility = stock_data['volatility']
+            
+            # Simplified probability estimates based on normal distribution
+            # Probability of stock moving up by X% in the option's time frame
+            days_to_expiry = opt.get('days_to_expiry', 30)
+            time_factor = np.sqrt(days_to_expiry / 252)  # Annualized to option timeframe
+            
+            # Calculate probabilities for different price moves
+            prob_25 = 1 - norm.cdf(0.25 / (volatility * time_factor))
+            prob_50 = 1 - norm.cdf(0.50 / (volatility * time_factor))
+            prob_100 = 1 - norm.cdf(1.00 / (volatility * time_factor))
+            
+            # Use the most realistic probability for Kelly calculation
+            # For penny stocks, use 25% move probability as baseline
+            p = prob_25
+            
+            # Calculate potential gains and losses
+            if current_price * 1.25 > strike:
+                g = (current_price * 1.25 - strike) / ask  # Return if stock moves 25%
+            else:
+                g = 0.1  # Small gain if option becomes slightly profitable
+            
+            l = 1.0  # Maximum loss is 100% of option premium
+            
+            # Calculate Kelly fraction
+            kelly_fraction = calculate_kelly_fraction(p, g, l)
+            
+            # Apply more conservative scaling for options
+            scaled_kelly = calculate_scaled_kelly(kelly_fraction, scaling_factor)
+            
+            # Calculate dollar allocation
+            dollar_allocation = scaled_kelly * portfolio_value
+            
+            # Very conservative limits for options
+            max_allocation = portfolio_value * 0.05  # Max 5% per option
+            dollar_allocation = min(dollar_allocation, max_allocation)
+            
+            if dollar_allocation > 5:  # Only include if allocation > $5
+                contracts_to_buy = int(dollar_allocation / ask / 100)  # Options are typically 100 shares
+                
+                if contracts_to_buy > 0:
+                    allocations.append({
+                        'ticker': ticker,
+                        'strike': strike,
+                        'ask': ask,
+                        'expiry': opt['expiry'],
+                        'current_price': current_price,
+                        'kelly_fraction': kelly_fraction,
+                        'scaled_kelly': scaled_kelly,
+                        'dollar_allocation': dollar_allocation,
+                        'contracts_to_buy': contracts_to_buy,
+                        'win_probability': p,
+                        'potential_gain': g,
+                        'max_loss': l,
+                        'volatility': volatility,
+                        'days_to_expiry': days_to_expiry,
+                        'return_25': opt.get('return_25', 0),
+                        'return_50': opt.get('return_50', 0),
+                        'return_100': opt.get('return_100', 0),
+                        'score': opt.get('score', 0),
+                        'reasons': opt.get('reasons', [])
+                    })
+                    
+                    total_allocation += dollar_allocation
+    
+    # Sort by Kelly fraction (highest first)
+    allocations.sort(key=lambda x: x['kelly_fraction'], reverse=True)
+    
+    return {
+        'allocations': allocations,
+        'total_allocated': total_allocation,
+        'cash_remaining': portfolio_value - total_allocation,
+        'allocation_percentage': (total_allocation / portfolio_value) * 100
+    }
+
+def display_options_kelly_allocation(options_allocation, portfolio_value=1000):
+    """
+    Display Kelly Criterion allocation for options
+    
+    Parameters:
+    options_allocation: options allocation dictionary
+    portfolio_value: total portfolio value
+    """
+    print(f"\n🎯 KELLY CRITERION OPTIONS ALLOCATION (${portfolio_value:,})")
+    print("=" * 100)
+    
+    allocations = options_allocation['allocations']
+    
+    if not allocations:
+        print("❌ No suitable options allocations found based on Kelly Criterion")
+        return
+    
+    print(f"📊 OPTIONS PORTFOLIO SUMMARY:")
+    print(f"   Total Allocated: ${options_allocation['total_allocated']:.2f}")
+    print(f"   Cash Remaining: ${options_allocation['cash_remaining']:.2f}")
+    print(f"   Allocation %: {options_allocation['allocation_percentage']:.1f}%")
+    print(f"   Number of Positions: {len(allocations)}")
+    
+    print(f"\n📈 OPTIONS ALLOCATION BREAKDOWN:")
+    print("-" * 120)
+    print(f"{'Rank':<4} {'Ticker':<8} {'Strike':<8} {'Cost':<8} {'Expiry':<12} {'Kelly%':<8} {'Scaled%':<8} {'Allocation':<12} {'Contracts':<10} {'Win%':<6} {'Gain%':<7} {'25%':<6} {'50%':<6} {'100%':<6}")
+    print("-" * 120)
+    
+    for i, alloc in enumerate(allocations, 1):
+        print(f"{i:<4} {alloc['ticker']:<8} ${alloc['strike']:<7.2f} ${alloc['ask']:<7.2f} "
+              f"{alloc['expiry']:<12} {alloc['kelly_fraction']:<7.1%} {alloc['scaled_kelly']:<7.1%} "
+              f"${alloc['dollar_allocation']:<11.2f} {alloc['contracts_to_buy']:<10} "
+              f"{alloc['win_probability']:<5.1%} {alloc['potential_gain']:<6.1%} "
+              f"{alloc['return_25']:<5.0f}% {alloc['return_50']:<5.0f}% {alloc['return_100']:<5.0f}%")
+    
+    print(f"\n🎯 DETAILED OPTIONS ANALYSIS:")
+    print("-" * 100)
+    
+    for i, alloc in enumerate(allocations[:3], 1):  # Show top 3
+        print(f"\n🥇 #{i}: {alloc['ticker']} - Options Kelly Allocation")
+        print(f"   Strike: ${alloc['strike']:.2f} | Cost: ${alloc['ask']:.2f} | Expiry: {alloc['expiry']}")
+        print(f"   Current Price: ${alloc['current_price']:.2f} | Days to Expiry: {alloc['days_to_expiry']}")
+        print(f"   Kelly Fraction: {alloc['kelly_fraction']:.1%} (Full Kelly)")
+        print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%} (Quarter Kelly)")
+        print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+        print(f"   Contracts to Buy: {alloc['contracts_to_buy']}")
+        print(f"   Win Probability: {alloc['win_probability']:.1%}")
+        print(f"   Potential Gain: {alloc['potential_gain']:.1%}")
+        print(f"   Max Loss: {alloc['max_loss']:.1%}")
+        print(f"   Volatility: {alloc['volatility']:.1%}")
+        print(f"   If Stock +25%: {alloc['return_25']:.0f}% return")
+        print(f"   If Stock +50%: {alloc['return_50']:.0f}% return")
+        print(f"   If Stock +100%: {alloc['return_100']:.0f}% return")
+        print(f"   Score: {alloc['score']}")
+        print(f"   Reasons: {', '.join(alloc['reasons'])}")
+    
+    print(f"\n⚠️  OPTIONS RISK MANAGEMENT:")
+    print("-" * 50)
+    print("• Using Quarter-Kelly (25% scaling) for options due to high risk")
+    print("• Maximum 5% allocation per option position")
+    print("• Minimum $5 allocation per position")
+    print("• Options have asymmetric risk (limited upside, unlimited downside)")
+    print("• Monitor time decay (theta) closely")
+    print("• Consider rolling positions before expiration")
+    print("• Use stop-losses or protective puts for risk management")
+
 def analyze_stock_potential(ticker):
     """Deep analysis of a stock for doubling potential"""
     try:
@@ -911,6 +1724,91 @@ def main():
             target_potential = ((row['Analyst_Target'] - row['Current_Price']) / row['Current_Price']) * 100
             print(f"   Analyst Target: ${row['Analyst_Target']:.2f} ({target_potential:+.1f}% potential)")
     
+    # KELLY CRITERION PORTFOLIO ALLOCATION
+    print(f"\n🎯 KELLY CRITERION PORTFOLIO ALLOCATION ANALYSIS")
+    print("=" * 100)
+    
+    print("Calculating optimal portfolio allocation using Kelly Criterion...")
+    print("This will determine the optimal position sizes for a $1000 portfolio.")
+    
+    # Convert DataFrame to list of dictionaries for Kelly analysis
+    stocks_data = results_df.head(10).to_dict('records')  # Use top 10 stocks
+    
+    # Calculate standard Kelly portfolio allocation
+    portfolio_allocation = calculate_portfolio_allocation(
+        stocks_data, 
+        portfolio_value=1000, 
+        scaling_factor=0.5  # Half-Kelly for reduced volatility
+    )
+    
+    # Calculate risk metrics
+    risk_metrics = calculate_risk_metrics(portfolio_allocation)
+    
+    # Display standard Kelly allocation results
+    display_kelly_portfolio_allocation(portfolio_allocation, risk_metrics, portfolio_value=1000)
+    
+    # CONFIDENCE-WEIGHTED KELLY CRITERION ANALYSIS
+    print(f"\n🎯 CONFIDENCE-WEIGHTED KELLY CRITERION ANALYSIS")
+    print("=" * 100)
+    
+    print("Calculating confidence-weighted portfolio allocation...")
+    print("This incorporates uncertainty in probability estimates for more robust position sizing.")
+    
+    # Calculate confidence-weighted Kelly portfolio allocation
+    confidence_portfolio_allocation = calculate_confidence_weighted_portfolio_allocation(
+        stocks_data, 
+        portfolio_value=1000, 
+        scaling_factor=0.5,  # Half-Kelly scaling
+        risk_aversion=1.0    # Moderate risk aversion
+    )
+    
+    # Display confidence-weighted allocation results
+    display_confidence_weighted_allocation(confidence_portfolio_allocation, portfolio_value=1000)
+    
+    # Compare standard vs confidence-weighted approaches
+    print(f"\n📊 STANDARD vs CONFIDENCE-WEIGHTED KELLY COMPARISON")
+    print("-" * 80)
+    
+    standard_allocated = portfolio_allocation['total_allocated']
+    confidence_allocated = confidence_portfolio_allocation['total_allocated']
+    standard_positions = len(portfolio_allocation['allocations'])
+    confidence_positions = len(confidence_portfolio_allocation['allocations'])
+    
+    print(f"  Standard Kelly: ${standard_allocated:.0f} allocated, {standard_positions} positions")
+    print(f"  Confidence-Weighted: ${confidence_allocated:.0f} allocated, {confidence_positions} positions")
+    print(f"  Difference: ${confidence_allocated - standard_allocated:+.0f} ({((confidence_allocated/standard_allocated - 1)*100):+.1f}%)")
+    
+    if confidence_positions > 0:
+        avg_confidence = sum(alloc['confidence_factor'] for alloc in confidence_portfolio_allocation['allocations']) / confidence_positions
+        print(f"  Average Confidence Factor: {avg_confidence:.1%}")
+    
+    # Additional Kelly analysis for different scaling factors
+    print(f"\n📊 KELLY SCALING COMPARISON")
+    print("-" * 50)
+    
+    scaling_factors = [0.25, 0.5, 0.75, 1.0]  # Quarter, Half, Three-quarter, Full Kelly
+    
+    for scaling in scaling_factors:
+        test_allocation = calculate_portfolio_allocation(stocks_data, 1000, scaling)
+        if test_allocation['allocations']:
+            print(f"  {scaling*100:.0f}% Kelly: ${test_allocation['total_allocated']:.0f} allocated, "
+                  f"{len(test_allocation['allocations'])} positions, "
+                  f"{test_allocation['cash_remaining']:.0f} cash remaining")
+        else:
+            print(f"  {scaling*100:.0f}% Kelly: No suitable allocations")
+    
+    print(f"\n💡 KELLY CRITERION INSIGHTS:")
+    print("-" * 50)
+    print("• Kelly Criterion maximizes long-term geometric growth")
+    print("• Confidence-weighted Kelly adjusts for uncertainty in estimates")
+    print("• Higher confidence = larger position sizes")
+    print("• Lower confidence = smaller position sizes")
+    print("• Full Kelly can be volatile - consider scaling down")
+    print("• Half-Kelly (50%) provides ~90% of growth with half the volatility")
+    print("• Quarter-Kelly (25%) is very conservative but still growth-optimal")
+    print("• Recalculate Kelly fractions monthly as probabilities change")
+    print("• Use remaining cash for new opportunities or risk management")
+    
     # ENHANCED OPTIONS ANALYSIS - TOP CANDIDATES FIRST
     print(f"\n🚀 HIGH-REWARD OPTIONS OPPORTUNITIES")
     print("=" * 100)
@@ -1063,6 +1961,93 @@ def main():
         print("No ultra-cheap options found.")
         print("These are rare but can provide massive returns if found!")
     
+    # KELLY CRITERION OPTIONS ALLOCATION
+    print(f"\n🎯 KELLY CRITERION OPTIONS ALLOCATION ANALYSIS")
+    print("=" * 100)
+    
+    # Collect all options for Kelly analysis
+    all_options_for_kelly = []
+    
+    # Add regular options
+    for opt in all_options:
+        all_options_for_kelly.append({
+            'ticker': opt['ticker'],
+            'strike': opt['strike'],
+            'ask': opt['ask'],
+            'expiry': opt['expiry'],
+            'current_price': opt['current_price'],
+            'days_to_expiry': opt.get('days_to_expiry', 30),
+            'return_25': opt.get('return_25', 0),
+            'return_50': opt.get('return_50', 0),
+            'return_100': opt.get('return_100', 0),
+            'score': opt.get('score', 0),
+            'reasons': opt.get('reasons', [])
+        })
+    
+    # Add penny options
+    for opt in penny_options:
+        all_options_for_kelly.append({
+            'ticker': opt['ticker'],
+            'strike': opt['strike'],
+            'ask': opt['ask'],
+            'expiry': opt['expiry'],
+            'current_price': opt['current_price'],
+            'days_to_expiry': opt.get('days_to_expiry', 30),
+            'return_25': opt.get('return_25', 0),
+            'return_50': opt.get('return_50', 0),
+            'return_100': opt.get('return_100', 0),
+            'score': opt.get('score', 0),
+            'reasons': opt.get('reasons', [])
+        })
+    
+    # Add ultra options
+    for opt in ultra_options:
+        all_options_for_kelly.append({
+            'ticker': opt['ticker'],
+            'strike': opt['strike'],
+            'ask': opt['ask'],
+            'expiry': opt['expiry'],
+            'current_price': opt['current_price'],
+            'days_to_expiry': 30,  # Default for ultra options
+            'return_25': 0,  # Will be calculated
+            'return_50': opt.get('return_50', 0),
+            'return_100': opt.get('return_100', 0),
+            'score': 50,  # Default score for ultra options
+            'reasons': ['Ultra cheap option']
+        })
+    
+    if all_options_for_kelly:
+        options_allocation = calculate_options_kelly_allocation(all_options_for_kelly, portfolio_value=1000, scaling_factor=0.25)
+        display_options_kelly_allocation(options_allocation, portfolio_value=1000)
+    else:
+        print("No options found for Kelly Criterion analysis.")
+    
+    # COMBINED PORTFOLIO SUMMARY
+    print(f"\n🎯 COMBINED PORTFOLIO SUMMARY (${1000:,})")
+    print("=" * 100)
+    
+    # Calculate combined allocation
+    stock_allocation = portfolio_allocation['total_allocated']
+    options_allocation_total = options_allocation['total_allocated'] if 'options_allocation' in locals() else 0
+    
+    total_combined = stock_allocation + options_allocation_total
+    cash_remaining = 1000 - total_combined
+    
+    print(f"📊 COMBINED ALLOCATION:")
+    print(f"   Stocks Allocation: ${stock_allocation:.2f} ({stock_allocation/10:.1f}%)")
+    print(f"   Options Allocation: ${options_allocation_total:.2f} ({options_allocation_total/10:.1f}%)")
+    print(f"   Total Allocated: ${total_combined:.2f} ({total_combined/10:.1f}%)")
+    print(f"   Cash Remaining: ${cash_remaining:.2f} ({cash_remaining/10:.1f}%)")
+    
+    print(f"\n💡 PORTFOLIO STRATEGY:")
+    print("-" * 50)
+    print("• Core positions: High-conviction stocks with Kelly-optimal sizing")
+    print("• Satellite positions: High-reward options for leverage")
+    print("• Cash buffer: For opportunities and risk management")
+    print("• Rebalance: Monthly based on updated Kelly calculations")
+    print("• Risk management: Position limits and stop-losses")
+    print("• Monitoring: Track drawdowns and adjust scaling factors")
+
     # AUTOMATIC REDDIT POSTING
     print(f"\n📱 AUTOMATIC REDDIT POSTING")
     print("=" * 50)
