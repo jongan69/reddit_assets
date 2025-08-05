@@ -1,8 +1,6 @@
-# reddit_assets
+# 📘 Reddit_assets: A Unified Risk-Reward Metric for Short-Term Trading
 
 [![Reddit Post](https://github.com/jongan69/reddit_assets/actions/workflows/reddit_post.yml/badge.svg)](https://github.com/jongan69/reddit_assets/actions/workflows/reddit_post.yml)
-
-# 📘 Introduction: A Unified Risk-Reward Metric for Short-Term Trading
 
 In the world of quantitative finance, measuring the risk-adjusted return of an investment strategy is fundamental. Several established ratios have emerged as leading indicators of performance, each offering a unique lens on volatility, drawdown, and return dynamics. Notably, this research draws theoretical and empirical motivation from the Kelly Criterion, the Calmar Ratio, and the Sortino Ratio—all while taking inspiration from the exceptional track record of the Medallion Fund, managed by Renaissance Technologies.
 

@@ -587,6 +587,307 @@ def display_confidence_weighted_allocation(portfolio_allocation, portfolio_value
     print("• Risk aversion factor adjusts for conservative estimates")
     print("• Recalculate confidence levels monthly with new data")
 
+# Unified Risk-Reward Metric Functions (Inspired by Medallion Fund Principles)
+def calculate_sortino_ratio(returns, target_return=0.0, risk_free_rate=0.05):
+    """
+    Calculate Sortino Ratio focusing on downside volatility only
+    
+    Parameters:
+    returns: array of returns
+    target_return: target return (default 0)
+    risk_free_rate: annual risk-free rate (default 5%)
+    
+    Returns:
+    float: Sortino ratio
+    """
+    try:
+        # Convert annual risk-free rate to daily
+        daily_rf = (1 + risk_free_rate) ** (1/252) - 1
+        
+        # Calculate excess returns
+        excess_returns = returns - daily_rf
+        
+        # Calculate downside deviation (only negative returns)
+        downside_returns = np.minimum(excess_returns - target_return, 0)
+        downside_deviation = np.sqrt(np.mean(downside_returns ** 2))
+        
+        # Calculate average excess return
+        avg_excess_return = np.mean(excess_returns)
+        
+        # Sortino ratio
+        if downside_deviation > 0:
+            sortino_ratio = avg_excess_return / downside_deviation
+        else:
+            sortino_ratio = 0
+            
+        return sortino_ratio
+        
+    except Exception as e:
+        print(f"Error calculating Sortino ratio: {e}")
+        return 0
+
+def calculate_calmar_ratio(returns, lookback_days=252):
+    """
+    Calculate Calmar Ratio (CAGR / Max Drawdown)
+    
+    Parameters:
+    returns: array of returns
+    lookback_days: number of days to calculate CAGR
+    
+    Returns:
+    float: Calmar ratio
+    """
+    try:
+        # Calculate cumulative returns
+        cumulative_returns = (1 + returns).cumprod()
+        
+        # Calculate CAGR
+        total_return = cumulative_returns.iloc[-1] - 1
+        years = lookback_days / 252
+        cagr = (1 + total_return) ** (1/years) - 1 if years > 0 else 0
+        
+        # Calculate maximum drawdown
+        rolling_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - rolling_max) / rolling_max
+        max_drawdown = abs(drawdown.min())
+        
+        # Calmar ratio
+        if max_drawdown > 0:
+            calmar_ratio = cagr / max_drawdown
+        else:
+            calmar_ratio = 0
+            
+        return calmar_ratio
+        
+    except Exception as e:
+        print(f"Error calculating Calmar ratio: {e}")
+        return 0
+
+def calculate_unified_risk_reward_metric(ticker, lookback_days=252, risk_free_rate=0.05):
+    """
+    Calculate unified risk-reward metric combining Kelly, Sortino, and Calmar principles
+    
+    Parameters:
+    ticker: stock symbol
+    lookback_days: number of days to look back
+    risk_free_rate: annual risk-free rate
+    
+    Returns:
+    dict: unified risk-reward metrics
+    """
+    try:
+        yft = yf.Ticker(ticker)
+        hist = yft.history(period=f'{lookback_days}d')
+        
+        if len(hist) < 30:
+            return None
+        
+        # Calculate daily returns
+        returns = hist['Close'].pct_change().dropna()
+        
+        # Calculate Kelly Criterion
+        kelly_data = estimate_stock_probabilities_with_confidence(ticker, lookback_days)
+        
+        if not kelly_data:
+            return None
+        
+        # Calculate Sortino Ratio
+        sortino_ratio = calculate_sortino_ratio(returns, 0.0, risk_free_rate)
+        
+        # Calculate Calmar Ratio
+        calmar_ratio = calculate_calmar_ratio(returns, lookback_days)
+        
+        # Calculate Sharpe Ratio
+        sharpe_ratio = kelly_data['sharpe_ratio']
+        
+        # Calculate volatility and other metrics
+        volatility = returns.std()
+        avg_return = returns.mean()
+        max_drawdown = kelly_data['max_drawdown']
+        
+        # Unified Risk-Reward Score (Medallion-inspired)
+        # Combines Kelly, Sortino, and Calmar principles
+        kelly_weight = 0.4  # Position sizing importance
+        sortino_weight = 0.3  # Downside risk importance
+        calmar_weight = 0.3  # Drawdown control importance
+        
+        # Normalize ratios to 0-1 scale (assuming reasonable ranges)
+        kelly_score = min(1.0, max(0.0, kelly_data['kelly_results']['confidence_weighted_kelly'] * 10))
+        sortino_score = min(1.0, max(0.0, sortino_ratio / 2))  # Normalize to 0-2 range
+        calmar_score = min(1.0, max(0.0, calmar_ratio / 3))    # Normalize to 0-3 range
+        
+        # Calculate unified score
+        unified_score = (kelly_weight * kelly_score + 
+                        sortino_weight * sortino_score + 
+                        calmar_weight * calmar_score)
+        
+        # Risk-adjusted Kelly allocation
+        risk_adjusted_kelly = kelly_data['kelly_results']['confidence_weighted_kelly'] * unified_score
+        
+        return {
+            'ticker': ticker,
+            'unified_score': unified_score,
+            'kelly_score': kelly_score,
+            'sortino_score': sortino_score,
+            'calmar_score': calmar_score,
+            'kelly_ratio': kelly_data['kelly_results']['confidence_weighted_kelly'],
+            'sortino_ratio': sortino_ratio,
+            'calmar_ratio': calmar_ratio,
+            'sharpe_ratio': sharpe_ratio,
+            'risk_adjusted_kelly': risk_adjusted_kelly,
+            'volatility': volatility,
+            'avg_return': avg_return,
+            'max_drawdown': max_drawdown,
+            'win_probability': kelly_data['win_probability'],
+            'confidence_factor': kelly_data['kelly_results']['confidence_factor'],
+            'sample_size': len(returns)
+        }
+        
+    except Exception as e:
+        print(f"Error calculating unified risk-reward metric for {ticker}: {e}")
+        return None
+
+def calculate_medallion_style_portfolio_allocation(stocks_data, portfolio_value=1000, 
+                                                 scaling_factor=0.5, risk_aversion=1.0):
+    """
+    Calculate portfolio allocation using Medallion-inspired unified risk-reward metric
+    
+    Parameters:
+    stocks_data: list of stock analysis dictionaries
+    portfolio_value: total portfolio value
+    scaling_factor: Kelly scaling factor
+    risk_aversion: risk aversion factor
+    
+    Returns:
+    dict: Medallion-style portfolio allocation
+    """
+    allocations = []
+    total_allocation = 0
+    
+    print("🔬 Calculating Medallion-style unified risk-reward metrics...")
+    
+    for stock in stocks_data:
+        ticker = stock['Ticker']
+        
+        # Calculate unified risk-reward metric
+        unified_data = calculate_unified_risk_reward_metric(ticker)
+        
+        if unified_data and unified_data['unified_score'] > 0.1:  # Minimum threshold
+            # Use risk-adjusted Kelly for allocation
+            risk_adjusted_kelly = unified_data['risk_adjusted_kelly']
+            
+            # Apply scaling and risk aversion
+            scaled_kelly = calculate_scaled_kelly(risk_adjusted_kelly, scaling_factor)
+            
+            # Calculate dollar allocation
+            dollar_allocation = scaled_kelly * portfolio_value
+            
+            # Position limits based on unified score
+            max_allocation = portfolio_value * (0.20 * unified_data['unified_score'])
+            dollar_allocation = min(dollar_allocation, max_allocation)
+            
+            # Minimum allocation based on unified score
+            min_allocation = 10 * unified_data['unified_score']
+            if dollar_allocation > min_allocation:
+                allocations.append({
+                    'ticker': ticker,
+                    'current_price': stock['Current_Price'],
+                    'unified_score': unified_data['unified_score'],
+                    'kelly_score': unified_data['kelly_score'],
+                    'sortino_score': unified_data['sortino_score'],
+                    'calmar_score': unified_data['calmar_score'],
+                    'risk_adjusted_kelly': risk_adjusted_kelly,
+                    'scaled_kelly': scaled_kelly,
+                    'dollar_allocation': dollar_allocation,
+                    'shares_to_buy': int(dollar_allocation / stock['Current_Price']),
+                    'kelly_ratio': unified_data['kelly_ratio'],
+                    'sortino_ratio': unified_data['sortino_ratio'],
+                    'calmar_ratio': unified_data['calmar_ratio'],
+                    'sharpe_ratio': unified_data['sharpe_ratio'],
+                    'volatility': unified_data['volatility'],
+                    'avg_return': unified_data['avg_return'],
+                    'max_drawdown': unified_data['max_drawdown'],
+                    'win_probability': unified_data['win_probability'],
+                    'confidence_factor': unified_data['confidence_factor'],
+                    'doubling_score': stock['Doubling_Score'],
+                    'reasons': stock['Reasons'],
+                    'sample_size': unified_data['sample_size']
+                })
+                
+                total_allocation += dollar_allocation
+    
+    # Sort by unified score (highest first)
+    allocations.sort(key=lambda x: x['unified_score'], reverse=True)
+    
+    return {
+        'allocations': allocations,
+        'total_allocated': total_allocation,
+        'cash_remaining': portfolio_value - total_allocation,
+        'allocation_percentage': (total_allocation / portfolio_value) * 100
+    }
+
+def display_medallion_style_allocation(portfolio_allocation, portfolio_value=1000):
+    """
+    Display Medallion-style portfolio allocation results
+    
+    Parameters:
+    portfolio_allocation: portfolio allocation dictionary
+    portfolio_value: total portfolio value
+    """
+    print(f"\n🏆 MEDALLION-STYLE UNIFIED RISK-REWARD ALLOCATION (${portfolio_value:,})")
+    print("=" * 140)
+    
+    allocations = portfolio_allocation['allocations']
+    
+    if not allocations:
+        print("❌ No suitable allocations found based on unified risk-reward metric")
+        return
+    
+    print(f"📊 PORTFOLIO SUMMARY:")
+    print(f"   Total Allocated: ${portfolio_allocation['total_allocated']:.2f}")
+    print(f"   Cash Remaining: ${portfolio_allocation['cash_remaining']:.2f}")
+    print(f"   Allocation %: {portfolio_allocation['allocation_percentage']:.1f}%")
+    print(f"   Number of Positions: {len(allocations)}")
+    
+    print(f"\n📈 UNIFIED RISK-REWARD ALLOCATION BREAKDOWN:")
+    print("-" * 160)
+    print(f"{'Rank':<4} {'Ticker':<8} {'Price':<8} {'Unified':<8} {'Kelly':<8} {'Sortino':<8} {'Calmar':<8} {'Allocation':<12} {'Shares':<8} {'Kelly%':<7} {'Sortino':<7} {'Calmar':<7}")
+    print("-" * 160)
+    
+    for i, alloc in enumerate(allocations, 1):
+        print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+              f"{alloc['unified_score']:<7.1%} {alloc['kelly_score']:<7.1%} "
+              f"{alloc['sortino_score']:<7.1%} {alloc['calmar_score']:<7.1%} "
+              f"${alloc['dollar_allocation']:<11.2f} {alloc['shares_to_buy']:<8} "
+              f"{alloc['kelly_ratio']:<6.1%} {alloc['sortino_ratio']:<6.2f} {alloc['calmar_ratio']:<6.2f}")
+    
+    print(f"\n🎯 DETAILED UNIFIED ANALYSIS:")
+    print("-" * 140)
+    
+    for i, alloc in enumerate(allocations[:5], 1):  # Show top 5
+        print(f"\n🏆 #{i}: {alloc['ticker']} - Medallion-Style Allocation")
+        print(f"   Current Price: ${alloc['current_price']:.2f}")
+        print(f"   Unified Score: {alloc['unified_score']:.1%}")
+        print(f"   Risk-Adjusted Kelly: {alloc['risk_adjusted_kelly']:.1%}")
+        print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%}")
+        print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+        print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+        print(f"   Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}")
+        print(f"   Sharpe Ratio: {alloc['sharpe_ratio']:.2f} | Volatility: {alloc['volatility']:.1%}")
+        print(f"   Win Probability: {alloc['win_probability']:.1%} | Confidence: {alloc['confidence_factor']:.1%}")
+        print(f"   Max Drawdown: {alloc['max_drawdown']:.1%} | Sample Size: {alloc['sample_size']} days")
+        print(f"   Doubling Score: {alloc['doubling_score']}")
+        print(f"   Reasons: {alloc['reasons']}")
+    
+    print(f"\n💡 MEDALLION-STYLE PRINCIPLES:")
+    print("-" * 60)
+    print("• **Kelly Criterion (40%)**: Optimal position sizing for growth")
+    print("• **Sortino Ratio (30%)**: Focus on downside risk only")
+    print("• **Calmar Ratio (30%)**: Drawdown control and capital preservation")
+    print("• **Unified Score**: Combines all three metrics for optimal allocation")
+    print("• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score")
+    print("• **Short-term focus**: Designed for active trading strategies")
+
 def display_kelly_portfolio_allocation(portfolio_allocation, risk_metrics, portfolio_value=1000):
     """
     Display Kelly Criterion portfolio allocation results
@@ -1445,6 +1746,8 @@ def find_ultra_cheap_options():
                                 return_50 = (current_price * 1.5 - strike) / ask
                                 if return_50 > 2:  # At least 200% return
                                     # Calculate Greeks for ultra-cheap options
+                                    expiry_date = datetime.strptime(expiry, '%Y-%m-%d')
+                                    days_to_expiry = (expiry_date - datetime.now()).days
                                     greeks = calculate_greeks(current_price, strike, days_to_expiry, 0.05, 0.8, 'call')
                                     ultra_options.append({
                                         'ticker': ticker,
@@ -1572,13 +1875,16 @@ def get_reddit_trending_stocks():
     
     return list(reddit_stocks)
 
-def post_results_to_reddit(results_df, options_found, portfolio_allocation=None, confidence_allocation=None):
+def post_results_to_reddit(results_df, options_found, portfolio_allocation=None, confidence_allocation=None, medallion_allocation=None):
     """Post screener results to Reddit"""
     try:
         # Check if Reddit credentials are available
+        if  not all([REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD]):
+            print("❌ Reddit credentials not found in environment variables. Cannot post to Reddit.")
+            return False
         if not all([REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD]):
             print("❌ Reddit credentials not found in environment variables. Cannot post to Reddit.")
-            return
+            return False
             
         # Initialize Reddit client
         reddit = praw.Reddit(
@@ -1644,7 +1950,28 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
                 text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
                 text += f"   - Confidence: {alloc['confidence_factor']:.1%} | Sample Size: {alloc['sample_size']} days\n"
                 text += f"   - Win Rate: {alloc['win_probability']:.1%} | Volatility: {alloc['volatility']:.1%}\n\n"
+    
+        # Add Medallion-Style Analysis
+        if medallion_allocation and medallion_allocation['allocations']:
+            text += "## 🏆 MEDALLION-STYLE UNIFIED RISK-REWARD ANALYSIS\n\n"
+            text += f"**Medallion-Style Summary:**\n"
+            text += f"- Total Allocated: ${medallion_allocation['total_allocated']:.0f}\n"
+            text += f"- Cash Remaining: ${medallion_allocation['cash_remaining']:.0f}\n"
+            text += f"- Allocation %: {medallion_allocation['allocation_percentage']:.1f}%\n"
+            text += f"- Number of Positions: {len(medallion_allocation['allocations'])}\n\n"
+            
+            text += f"**Medallion-Style Summary:**\n"
+            text += f"- Total Allocated: ${medallion_allocation['total_allocated']:.0f}\n"
+            text += f"- Cash Remaining: ${medallion_allocation['cash_remaining']:.0f}\n"
+            text += f"- Allocation %: {medallion_allocation['allocation_percentage']:.1f}%\n"
+            text += f"- Number of Positions: {len(medallion_allocation['allocations'])}\n\n"
         
+            text += "**Top Medallion-Style Allocations:**\n"
+            for i, alloc in enumerate(medallion_allocation['allocations'][:3], 1):
+                text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
+                text += f"   - Unified Score: {alloc['unified_score']:.1%} | Kelly: {alloc['kelly_score']:.1%} | Sortino: {alloc['sortino_score']:.1%} | Calmar: {alloc['calmar_score']:.1%}\n"
+                text += f"   - Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}\n\n"
+    
         # Add Kelly Criterion Insights
         text += "## 💡 KELLY CRITERION INSIGHTS\n\n"
         text += "• **Kelly Criterion** maximizes long-term geometric growth\n"
@@ -1653,6 +1980,16 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
         text += "• **Lower confidence** = smaller position sizes (more conservative)\n"
         text += "• **Half-Kelly (50%)** provides ~90% of growth with half the volatility\n"
         text += "• **Rebalance monthly** based on updated Kelly calculations\n\n"
+    
+        # Add Medallion-Style Insights
+        if medallion_allocation:
+            text += "## 🏆 MEDALLION-STYLE PRINCIPLES\n\n"
+            text += "• **Unified Risk-Reward Metric**: Combines Kelly, Sortino, and Calmar ratios\n"
+            text += "• **Kelly Criterion (40%)**: Optimal position sizing for growth\n"
+            text += "• **Sortino Ratio (30%)**: Focus on downside risk only\n"
+            text += "• **Calmar Ratio (30%)**: Drawdown control and capital preservation\n"
+            text += "• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score\n"
+            text += "• **Short-term focus**: Designed for active trading strategies\n\n"
         
         # Add detailed options analysis
         if options_found:
@@ -1695,6 +2032,7 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
     except Exception as e:
         print(f"❌ Error posting to Reddit: {e}")
         print("  Note: Check your Reddit API credentials in .env file")
+        return False
 
 def main():
     print("🚀 POTENTIAL DOUBLING STOCKS SCREENER")
@@ -1854,6 +2192,66 @@ def main():
     print("• Quarter-Kelly (25%) is very conservative but still growth-optimal")
     print("• Recalculate Kelly fractions monthly as probabilities change")
     print("• Use remaining cash for new opportunities or risk management")
+    
+    # MEDALLION-STYLE UNIFIED RISK-REWARD ANALYSIS
+    print(f"\n🏆 MEDALLION-STYLE UNIFIED RISK-REWARD ANALYSIS")
+    print("=" * 100)
+    
+    print("Calculating Medallion-inspired unified risk-reward metrics...")
+    print("This combines Kelly Criterion, Sortino Ratio, and Calmar Ratio principles.")
+    
+    # Calculate Medallion-style portfolio allocation
+    medallion_allocation = calculate_medallion_style_portfolio_allocation(
+        stocks_data, 
+        portfolio_value=1000, 
+        scaling_factor=0.5,
+        risk_aversion=1.0
+    )
+    
+    # Display Medallion-style allocation results
+    display_medallion_style_allocation(medallion_allocation, portfolio_value=1000)
+    
+    # Compare all three approaches
+    print(f"\n📊 COMPREHENSIVE ALLOCATION COMPARISON")
+    print("-" * 80)
+    
+    standard_allocated = portfolio_allocation['total_allocated']
+    confidence_allocated = confidence_portfolio_allocation['total_allocated']
+    medallion_allocated = medallion_allocation['total_allocated']
+    
+    print(f"  Standard Kelly: ${standard_allocated:.0f} allocated, {len(portfolio_allocation['allocations'])} positions")
+    print(f"  Confidence-Weighted: ${confidence_allocated:.0f} allocated, {len(confidence_portfolio_allocation['allocations'])} positions")
+    print(f"  Medallion-Style: ${medallion_allocated:.0f} allocated, {len(medallion_allocation['allocations'])} positions")
+    
+    # Calculate differences
+    conf_diff = confidence_allocated - standard_allocated
+    medallion_diff = medallion_allocated - standard_allocated
+    
+    print(f"  Confidence vs Standard: ${conf_diff:+.0f} ({((confidence_allocated/standard_allocated - 1)*100):+.1f}%)")
+    print(f"  Medallion vs Standard: ${medallion_diff:+.0f} ({((medallion_allocated/standard_allocated - 1)*100):+.1f}%)")
+    
+    # Show which approach is most conservative
+    approaches = [
+        ("Standard Kelly", standard_allocated),
+        ("Confidence-Weighted", confidence_allocated),
+        ("Medallion-Style", medallion_allocated)
+    ]
+    
+    most_conservative = min(approaches, key=lambda x: x[1])
+    most_aggressive = max(approaches, key=lambda x: x[1])
+    
+    print(f"\n  Most Conservative: {most_conservative[0]} (${most_conservative[1]:.0f})")
+    print(f"  Most Aggressive: {most_aggressive[0]} (${most_aggressive[1]:.0f})")
+    
+    print(f"\n💡 MEDALLION-STYLE INSIGHTS:")
+    print("-" * 50)
+    print("• **Unified Risk-Reward Metric**: Combines Kelly, Sortino, and Calmar ratios")
+    print("• **Kelly Criterion (40%)**: Optimal position sizing for growth")
+    print("• **Sortino Ratio (30%)**: Focus on downside risk only")
+    print("• **Calmar Ratio (30%)**: Drawdown control and capital preservation")
+    print("• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score")
+    print("• **Short-term focus**: Designed for active trading strategies")
+    print("• **Medallion-inspired**: Based on principles of successful quantitative funds")
     
     # ENHANCED OPTIONS ANALYSIS - TOP CANDIDATES FIRST
     print(f"\n🚀 HIGH-REWARD OPTIONS OPPORTUNITIES")
@@ -2108,7 +2506,7 @@ def main():
         all_options_found.extend(ultra_options)
     
     # Automatically post to Reddit with Kelly allocation data
-    post_results_to_reddit(results_df, all_options_found, portfolio_allocation, confidence_portfolio_allocation)
+    post_results_to_reddit(results_df, all_options_found, portfolio_allocation, confidence_portfolio_allocation, medallion_allocation)
 
 if __name__ == "__main__":
     main()
