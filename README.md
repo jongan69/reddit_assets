@@ -2,13 +2,6 @@
 
 [![Reddit Post](https://github.com/jongan69/reddit_assets/actions/workflows/reddit_post.yml/badge.svg)](https://github.com/jongan69/reddit_assets/actions/workflows/reddit_post.yml)
 
-**The Cauchy-Schwarz Inequality**
-
-```math
-\left( \sum_{k=1}^n a_k b_k \right)^2 \leq \left( \sum_{k=1}^n a_k^2 \right) \left( \sum_{k=1}^n b_k^2 \right)
-```
-
-
 📘 Introduction: A Unified Risk-Reward Metric for Short-Term Trading
 
 In the world of quantitative finance, measuring the risk-adjusted return of an investment strategy is fundamental. Several established ratios have emerged as leading indicators of performance, each offering a unique lens on volatility, drawdown, and return dynamics. Notably, this research draws theoretical and empirical motivation from the Kelly Criterion, the Calmar Ratio, and the Sortino Ratio—all while taking inspiration from the exceptional track record of the Medallion Fund, managed by Renaissance Technologies.
@@ -23,7 +16,9 @@ The goal of this paper is to explore how these concepts can be harmonized into a
 
 The Kelly Criterion determines the optimal fraction of capital to allocate to a trade to maximize the long-term growth of wealth:
 
-$`f^* = \frac{\mu - r}{\sigma^2}`$
+```math
+f^* = \frac{\mu - r}{\sigma^2}
+```
 
 Where:
 	•	f^* is the optimal fraction of capital to wager
@@ -43,7 +38,9 @@ This version relates closely to the Sharpe Ratio, as we’ll see.
 
 The Sharpe Ratio measures the risk-adjusted return by comparing excess return to volatility:
 
+```math
 \text{Sharpe} = \frac{R_p - R_f}{\sigma_p}
+```
 
 Where:
 	•	R_p = portfolio return
@@ -58,11 +55,13 @@ This ratio assumes symmetric volatility and penalizes upside and downside equall
 
 The Sortino Ratio improves on the Sharpe Ratio by focusing on downside volatility only:
 
+```math
 \text{Sortino} = \frac{R_p - R_f}{\sigma_D}
+```
 
-Where \sigma_D is the downside deviation, calculated as:
+Where $\sigma_D$ is the downside deviation, calculated as:
 
-\sigma_D = \sqrt{ \frac{1}{N} \sum_{i=1}^{N} \min(0, R_i - T)^2 }
+$`\sigma_D = \sqrt{ \frac{1}{N} \sum_{i=1}^{N} \min(0, R_i - T)^2 }`$
 
 	•	T = target return (can be set to 0, or a benchmark)
 	•	Penalizes only negative returns, thus better capturing asymmetric risk
@@ -73,7 +72,9 @@ Where \sigma_D is the downside deviation, calculated as:
 
 The Calmar Ratio emphasizes drawdown risk, useful in trend-following or short-term systems:
 
+```math
 \text{Calmar} = \frac{\text{CAGR}}{\text{Max Drawdown}}
+```
 
 Where:
 	•	CAGR = Compound Annual Growth Rate
