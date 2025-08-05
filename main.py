@@ -1572,7 +1572,7 @@ def get_reddit_trending_stocks():
     
     return list(reddit_stocks)
 
-def post_results_to_reddit(results_df, options_found):
+def post_results_to_reddit(results_df, options_found, portfolio_allocation=None, confidence_allocation=None):
     """Post screener results to Reddit"""
     try:
         # Check if Reddit credentials are available
@@ -1604,26 +1604,71 @@ def post_results_to_reddit(results_df, options_found):
                 text += f"- Analyst Target: ${row['Analyst_Target']:.2f} ({target_potential:+.1f}% potential)\n"
             text += f"- Reasons: {row['Reasons']}\n\n"
         
+        # Add Kelly Criterion Portfolio Allocation
+        if portfolio_allocation and portfolio_allocation['allocations']:
+            text += "## 🎯 KELLY CRITERION PORTFOLIO ALLOCATION ($1,000)\n\n"
+            text += f"**Portfolio Summary:**\n"
+            text += f"- Total Allocated: ${portfolio_allocation['total_allocated']:.0f}\n"
+            text += f"- Cash Remaining: ${portfolio_allocation['cash_remaining']:.0f}\n"
+            text += f"- Allocation %: {portfolio_allocation['allocation_percentage']:.1f}%\n"
+            text += f"- Number of Positions: {len(portfolio_allocation['allocations'])}\n\n"
+            
+            text += "**Top Kelly Allocations:**\n"
+            for i, alloc in enumerate(portfolio_allocation['allocations'][:5], 1):
+                text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
+                text += f"   - Shares: {alloc['shares_to_buy']} | Win Rate: {alloc['win_probability']:.1%}\n"
+                text += f"   - Kelly Score: {alloc['kelly_fraction']:.1%} | Doubling Score: {alloc['doubling_score']}\n\n"
+        
+        # Add Confidence-Weighted Kelly Comparison
+        if confidence_allocation and confidence_allocation['allocations']:
+            text += "## 📊 CONFIDENCE-WEIGHTED KELLY ANALYSIS\n\n"
+            text += f"**Confidence-Weighted Summary:**\n"
+            text += f"- Total Allocated: ${confidence_allocation['total_allocated']:.0f}\n"
+            text += f"- Cash Remaining: ${confidence_allocation['cash_remaining']:.0f}\n"
+            text += f"- Allocation %: {confidence_allocation['allocation_percentage']:.1f}%\n"
+            text += f"- Number of Positions: {len(confidence_allocation['allocations'])}\n\n"
+            
+            if portfolio_allocation:
+                standard_allocated = portfolio_allocation['total_allocated']
+                confidence_allocated = confidence_allocation['total_allocated']
+                difference = confidence_allocated - standard_allocated
+                percent_change = ((confidence_allocated/standard_allocated - 1)*100) if standard_allocated > 0 else 0
+                
+                text += f"**Comparison:**\n"
+                text += f"- Standard Kelly: ${standard_allocated:.0f}\n"
+                text += f"- Confidence-Weighted: ${confidence_allocated:.0f}\n"
+                text += f"- Difference: ${difference:+.0f} ({percent_change:+.1f}%)\n\n"
+            
+            text += "**Top Confidence-Weighted Allocations:**\n"
+            for i, alloc in enumerate(confidence_allocation['allocations'][:3], 1):
+                text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
+                text += f"   - Confidence: {alloc['confidence_factor']:.1%} | Sample Size: {alloc['sample_size']} days\n"
+                text += f"   - Win Rate: {alloc['win_probability']:.1%} | Volatility: {alloc['volatility']:.1%}\n\n"
+        
+        # Add Kelly Criterion Insights
+        text += "## 💡 KELLY CRITERION INSIGHTS\n\n"
+        text += "• **Kelly Criterion** maximizes long-term geometric growth\n"
+        text += "• **Confidence-weighted Kelly** adjusts for uncertainty in estimates\n"
+        text += "• **Higher confidence** = larger position sizes\n"
+        text += "• **Lower confidence** = smaller position sizes (more conservative)\n"
+        text += "• **Half-Kelly (50%)** provides ~90% of growth with half the volatility\n"
+        text += "• **Rebalance monthly** based on updated Kelly calculations\n\n"
+        
         # Add detailed options analysis
         if options_found:
             text += "## 🎯 OPTIONS OPPORTUNITIES\n\n"
-            text += f"Found {len(options_found)} high-reward option opportunities with Greeks analysis:\n\n"
+            text += f"Found {len(options_found)} high-reward option opportunities:\n\n"
             
             # Sort options by score
             options_found.sort(key=lambda x: x.get('score', 0), reverse=True)
             
-            # Add top 5 options with full details
-            for i, opt in enumerate(options_found[:5], 1):
+            # Add top 3 options with key details
+            for i, opt in enumerate(options_found[:3], 1):
                 text += f"**#{i}: {opt['ticker']}** - Score: {opt.get('score', 'N/A')}\n"
                 text += f"- Strike: ${opt['strike']:.2f} | Cost: ${opt['ask']:.2f} | Expiry: {opt['expiry']}\n"
                 text += f"- Current Price: ${opt['current_price']:.2f}\n"
                 
-                # Add Greeks if available
-                if opt.get('greeks'):
-                    greeks = opt['greeks']
-                    text += f"- Greeks: Δ={greeks['delta']:.3f} | Γ={greeks['gamma']:.3f} | Θ={greeks['theta']:.3f} | ν={greeks['vega']:.3f}\n"
-                
-                # Add returns
+                # Add key returns
                 if opt.get('return_25', 0) > 0:
                     text += f"- 25% move: {opt['return_25']:.0f}% return\n"
                 if opt.get('return_50', 0) > 0:
@@ -1631,15 +1676,16 @@ def post_results_to_reddit(results_df, options_found):
                 if opt.get('return_100', 0) > 0:
                     text += f"- 100% move: {opt['return_100']:.0f}% return\n"
                 
-                # Add reasons
+                # Add key reasons
                 if opt.get('reasons'):
-                    text += f"- Reasons: {', '.join(opt['reasons'])}\n"
+                    text += f"- Reasons: {', '.join(opt['reasons'][:3])}\n"  # Limit to top 3 reasons
                 
                 text += "\n"
         
         text += "---\n"
-        text += "*Generated by Penny Stock Screener with Greeks Analysis*\n"
-        text += "*Not financial advice - Always do your own research!*"
+        text += "*Generated by Penny Stock Screener with Kelly Criterion Analysis*\n"
+        text += "*Not financial advice - Always do your own research!*\n"
+        text += "*Kelly Criterion optimizes position sizing for long-term growth*"
         
         # Post to subreddit
         subreddit = reddit.subreddit("cryptocurrensea")
@@ -2061,8 +2107,8 @@ def main():
     if ultra_options:
         all_options_found.extend(ultra_options)
     
-    # Automatically post to Reddit
-    post_results_to_reddit(results_df, all_options_found)
+    # Automatically post to Reddit with Kelly allocation data
+    post_results_to_reddit(results_df, all_options_found, portfolio_allocation, confidence_portfolio_allocation)
 
 if __name__ == "__main__":
     main()
