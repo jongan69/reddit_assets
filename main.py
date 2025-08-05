@@ -888,6 +888,225 @@ def display_medallion_style_allocation(portfolio_allocation, portfolio_value=100
     print("• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score")
     print("• **Short-term focus**: Designed for active trading strategies")
 
+def calculate_dynamic_holding_timeframe(unified_score, volatility, max_drawdown, calmar_ratio, sortino_ratio, base_holding_days=1.5):
+    """
+    Calculate dynamic holding timeframe based on Medallion-style metrics
+    
+    Parameters:
+    unified_score: unified risk-reward score (0-1)
+    volatility: stock volatility
+    max_drawdown: maximum historical drawdown
+    calmar_ratio: Calmar ratio
+    sortino_ratio: Sortino ratio
+    base_holding_days: base holding period in days (default 30)
+    
+    Returns:
+    dict: holding timeframe recommendations
+    """
+    # Base holding period adjustments based on unified score
+    # Higher unified score = longer holding period (more confidence)
+    # Lower unified score = shorter holding period (less confidence)
+    unified_adjustment = 1.0 + (unified_score - 0.5) * 0.4  # ±20% adjustment
+    
+    # Volatility adjustment
+    # Higher volatility = shorter holding period (more risk)
+    # Lower volatility = longer holding period (less risk)
+    volatility_factor = max(0.5, min(1.5, 1.0 - (volatility - 0.05) * 10))  # ±50% adjustment
+    
+    # Drawdown adjustment
+    # Higher drawdown = shorter holding period (more risk)
+    # Lower drawdown = longer holding period (less risk)
+    drawdown_factor = max(0.3, min(1.2, 1.0 - max_drawdown * 0.8))  # ±70% adjustment
+    
+    # Calmar ratio adjustment
+    # Higher Calmar = longer holding period (better risk-adjusted returns)
+    # Lower Calmar = shorter holding period (worse risk-adjusted returns)
+    calmar_factor = max(0.6, min(1.4, 1.0 + (calmar_ratio - 1.0) * 0.2))  # ±40% adjustment
+    
+    # Sortino ratio adjustment
+    # Higher Sortino = longer holding period (better downside protection)
+    # Lower Sortino = shorter holding period (worse downside protection)
+    sortino_factor = max(0.7, min(1.3, 1.0 + (sortino_ratio - 0.5) * 0.4))  # ±30% adjustment
+    
+    # Calculate final holding period
+    adjusted_holding_days = base_holding_days * unified_adjustment * volatility_factor * drawdown_factor * calmar_factor * sortino_factor
+    
+    # Apply minimum and maximum bounds (Medallion-style ultra-short term)
+    min_holding_days = 0.5   # Minimum 12 hours
+    max_holding_days = 7     # Maximum 7 days
+    final_holding_days = max(min_holding_days, min(max_holding_days, adjusted_holding_days))
+    
+    # Calculate rebalancing frequency (Medallion-style ultra-short term)
+    if final_holding_days <= 1:
+        rebalancing_frequency = "Intraday (Multiple times)"
+    elif final_holding_days <= 2:
+        rebalancing_frequency = "Daily"
+    elif final_holding_days <= 3:
+        rebalancing_frequency = "Every 1-2 days"
+    elif final_holding_days <= 5:
+        rebalancing_frequency = "Every 2-3 days"
+    else:
+        rebalancing_frequency = "Weekly"
+    
+    # Risk level assessment (Medallion-style ultra-short term)
+    if final_holding_days <= 1:
+        risk_level = "Ultra-High Risk - Intraday"
+        risk_color = "🔴"
+    elif final_holding_days <= 2:
+        risk_level = "High Risk - Very Short Term"
+        risk_color = "🟠"
+    elif final_holding_days <= 3:
+        risk_level = "Medium-High Risk - Short Term"
+        risk_color = "🟡"
+    elif final_holding_days <= 5:
+        risk_level = "Medium Risk - Medium-Short Term"
+        risk_color = "🟢"
+    else:
+        risk_level = "Medium-Low Risk - Medium Term"
+        risk_color = "🔵"
+    
+    # Exit strategy recommendations (Medallion-style ultra-short term)
+    if final_holding_days <= 1:
+        exit_strategy = "Ultra-tight stops (1-2%), immediate profit taking (3-5%)"
+    elif final_holding_days <= 2:
+        exit_strategy = "Tight stops (2-3%), quick profit taking (5-10%)"
+    elif final_holding_days <= 3:
+        exit_strategy = "Moderate stops (3-5%), profit taking at 8-12%"
+    elif final_holding_days <= 5:
+        exit_strategy = "Standard stops (4-6%), profit taking at 10-15%"
+    else:
+        exit_strategy = "Wider stops (5-8%), profit taking at 12-18%"
+    
+    return {
+        'holding_days': int(final_holding_days),
+        'rebalancing_frequency': rebalancing_frequency,
+        'risk_level': risk_level,
+        'risk_color': risk_color,
+        'exit_strategy': exit_strategy,
+        'factors': {
+            'unified_adjustment': unified_adjustment,
+            'volatility_factor': volatility_factor,
+            'drawdown_factor': drawdown_factor,
+            'calmar_factor': calmar_factor,
+            'sortino_factor': sortino_factor
+        }
+    }
+
+def display_dynamic_holding_timeframes(portfolio_allocation):
+    """
+    Display dynamic holding timeframes for Medallion-style allocations
+    
+    Parameters:
+    portfolio_allocation: portfolio allocation dictionary
+    """
+    print(f"\n⏰ DYNAMIC HOLDING TIMEFRAMES (MEDALLION-STYLE)")
+    print("=" * 120)
+    print("Calculating optimal holding periods based on unified risk-reward metrics...")
+    print("Shorter holding periods reduce drawdown risk and improve portfolio performance.")
+    
+    allocations = portfolio_allocation['allocations']
+    
+    if not allocations:
+        print("❌ No allocations to calculate holding timeframes for")
+        return
+    
+    print(f"\n📊 HOLDING TIMEFRAME BREAKDOWN:")
+    print("-" * 140)
+    print(f"{'Rank':<4} {'Ticker':<8} {'Unified':<8} {'Vol%':<6} {'Drawdown':<10} {'Calmar':<7} {'Sortino':<7} {'Days':<5} {'Risk':<25} {'Rebalance':<15}")
+    print("-" * 140)
+    
+    holding_data = []
+    
+    for i, alloc in enumerate(allocations, 1):
+        # Calculate dynamic holding timeframe
+        holding_info = calculate_dynamic_holding_timeframe(
+            unified_score=alloc['unified_score'],
+            volatility=alloc['volatility'],
+            max_drawdown=alloc['max_drawdown'],
+            calmar_ratio=alloc['calmar_ratio'],
+            sortino_ratio=alloc['sortino_ratio']
+        )
+        
+        holding_data.append({
+            'rank': i,
+            'ticker': alloc['ticker'],
+            'holding_info': holding_info,
+            'allocation': alloc
+        })
+        
+        print(f"{i:<4} {alloc['ticker']:<8} {alloc['unified_score']:<7.1%} "
+              f"{alloc['volatility']:<5.1%} {alloc['max_drawdown']:<9.1%} "
+              f"{alloc['calmar_ratio']:<6.2f} {alloc['sortino_ratio']:<6.2f} "
+              f"{holding_info['holding_days']:<5} {holding_info['risk_level'][:24]:<24} "
+              f"{holding_info['rebalancing_frequency']:<15}")
+    
+    print(f"\n🎯 DETAILED HOLDING TIMEFRAME ANALYSIS:")
+    print("-" * 120)
+    
+    for data in holding_data[:5]:  # Show top 5
+        alloc = data['allocation']
+        holding = data['holding_info']
+        
+        print(f"\n⏰ #{data['rank']}: {alloc['ticker']} - Dynamic Holding Timeframe")
+        print(f"   {holding['risk_color']} Risk Level: {holding['risk_level']}")
+        print(f"   📅 Holding Period: {holding['holding_days']} days")
+        print(f"   🔄 Rebalancing: {holding['rebalancing_frequency']}")
+        print(f"   🎯 Exit Strategy: {holding['exit_strategy']}")
+        print(f"   📊 Unified Score: {alloc['unified_score']:.1%}")
+        print(f"   📈 Volatility: {alloc['volatility']:.1%}")
+        print(f"   📉 Max Drawdown: {alloc['max_drawdown']:.1%}")
+        print(f"   📊 Calmar Ratio: {alloc['calmar_ratio']:.2f}")
+        print(f"   📊 Sortino Ratio: {alloc['sortino_ratio']:.2f}")
+        
+        # Show adjustment factors
+        factors = holding['factors']
+        print(f"   🔧 Adjustment Factors:")
+        print(f"      - Unified Score: {factors['unified_adjustment']:.2f}x")
+        print(f"      - Volatility: {factors['volatility_factor']:.2f}x")
+        print(f"      - Drawdown: {factors['drawdown_factor']:.2f}x")
+        print(f"      - Calmar: {factors['calmar_factor']:.2f}x")
+        print(f"      - Sortino: {factors['sortino_factor']:.2f}x")
+    
+    # Portfolio-level recommendations
+    avg_holding_days = sum(data['holding_info']['holding_days'] for data in holding_data) / len(holding_data)
+    high_risk_positions = sum(1 for data in holding_data if data['holding_info']['holding_days'] <= 15)
+    low_risk_positions = sum(1 for data in holding_data if data['holding_info']['holding_days'] >= 45)
+    
+    print(f"\n📊 PORTFOLIO HOLDING TIMEFRAME SUMMARY:")
+    print("-" * 60)
+    print(f"   Average Holding Period: {avg_holding_days:.1f} days")
+    print(f"   High Risk Positions (≤15 days): {high_risk_positions}")
+    print(f"   Low Risk Positions (≥45 days): {low_risk_positions}")
+    print(f"   Total Positions: {len(holding_data)}")
+    
+    # Portfolio-level recommendations (Medallion-style ultra-short term)
+    if avg_holding_days <= 2:
+        portfolio_style = "Ultra-Short Term (Medallion-Style)"
+        portfolio_advice = "• Monitor positions intraday\n• Use ultra-tight stop-losses\n• Take profits immediately (3-5%)\n• Very high turnover expected"
+    elif avg_holding_days <= 3:
+        portfolio_style = "Very Short Term (Active Trading)"
+        portfolio_advice = "• Monitor positions daily\n• Use tight stop-losses\n• Take profits quickly (5-10%)\n• High turnover expected"
+    elif avg_holding_days <= 5:
+        portfolio_style = "Short Term (Swing Trading)"
+        portfolio_advice = "• Monitor positions every 1-2 days\n• Use moderate stop-losses\n• Take profits at 8-12%\n• Moderate turnover expected"
+    else:
+        portfolio_style = "Medium-Short Term (Position Trading)"
+        portfolio_advice = "• Monitor positions every 2-3 days\n• Use standard stop-losses\n• Take profits at 10-15%\n• Lower turnover expected"
+    
+    print(f"   Portfolio Style: {portfolio_style}")
+    print(f"   📋 Portfolio Advice:")
+    for line in portfolio_advice.split('\n'):
+        print(f"      {line}")
+    
+    print(f"\n💡 MEDALLION-STYLE HOLDING TIMEFRAME PRINCIPLES:")
+    print("-" * 60)
+    print("• **Shorter holding periods** reduce drawdown risk")
+    print("• **Higher volatility** = shorter holding periods")
+    print("• **Higher drawdowns** = shorter holding periods")
+    print("• **Better risk-adjusted ratios** = longer holding periods")
+    print("• **Dynamic adjustment** based on unified risk-reward metrics")
+    print("• **Active management** required for optimal performance")
+
 def display_kelly_portfolio_allocation(portfolio_allocation, risk_metrics, portfolio_value=1000):
     """
     Display Kelly Criterion portfolio allocation results
@@ -1968,9 +2187,19 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
         
             text += "**Top Medallion-Style Allocations:**\n"
             for i, alloc in enumerate(medallion_allocation['allocations'][:3], 1):
-                text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
-                text += f"   - Unified Score: {alloc['unified_score']:.1%} | Kelly: {alloc['kelly_score']:.1%} | Sortino: {alloc['sortino_score']:.1%} | Calmar: {alloc['calmar_score']:.1%}\n"
-                text += f"   - Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}\n\n"
+                 # Calculate holding timeframe for this allocation
+                 holding_info = calculate_dynamic_holding_timeframe(
+                     unified_score=alloc['unified_score'],
+                     volatility=alloc['volatility'],
+                     max_drawdown=alloc['max_drawdown'],
+                     calmar_ratio=alloc['calmar_ratio'],
+                     sortino_ratio=alloc['sortino_ratio']
+                 )
+                 
+                 text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
+                 text += f"   - Unified Score: {alloc['unified_score']:.1%} | Kelly: {alloc['kelly_score']:.1%} | Sortino: {alloc['sortino_score']:.1%} | Calmar: {alloc['calmar_score']:.1%}\n"
+                 text += f"   - Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}\n"
+                 text += f"   - Holding Period: {holding_info['holding_days']} days | Risk: {holding_info['risk_level']} | Rebalance: {holding_info['rebalancing_frequency']}\n\n"
     
         # Add Kelly Criterion Insights
         text += "## 💡 KELLY CRITERION INSIGHTS\n\n"
@@ -2210,6 +2439,9 @@ def main():
     
     # Display Medallion-style allocation results
     display_medallion_style_allocation(medallion_allocation, portfolio_value=1000)
+    
+    # Display dynamic holding timeframes for Medallion-style allocations
+    display_dynamic_holding_timeframes(medallion_allocation)
     
     # Compare all three approaches
     print(f"\n📊 COMPREHENSIVE ALLOCATION COMPARISON")
