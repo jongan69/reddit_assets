@@ -2,68 +2,85 @@
 
 [![Reddit Post](https://github.com/jongan69/reddit_assets/actions/workflows/reddit_post.yml/badge.svg)](https://github.com/jongan69/reddit_assets/actions/workflows/reddit_post.yml)
 
-# 1. Background and Motivation
+📘 Introduction: A Unified Risk-Reward Metric for Short-Term Trading
 
-## 1.1 The Challenge of Balancing Risk and Reward
+In the world of quantitative finance, measuring the risk-adjusted return of an investment strategy is fundamental. Several established ratios have emerged as leading indicators of performance, each offering a unique lens on volatility, drawdown, and return dynamics. Notably, this research draws theoretical and empirical motivation from the Kelly Criterion, the Calmar Ratio, and the Sortino Ratio—all while taking inspiration from the exceptional track record of the Medallion Fund, managed by Renaissance Technologies.
 
-Short-term trading strategies are notoriously difficult to optimize due to the trade-off between return potential and rapidly compounding risk. In environments characterized by volatility clustering, fat tails, and autocorrelation, traditional reward-based strategies often suffer from uncontrolled drawdowns and inconsistent performance. The need for a systematic, quantitative approach to balancing risk and reward is therefore critical—particularly when aiming to generate **sustained profitability over short time horizons**.
+The goal of this paper is to explore how these concepts can be harmonized into a single composite formula to guide short-term trading strategies across various asset classes. We propose that an intelligent fusion of these metrics may allow for superior capital allocation and better reward-to-risk optimization over shorter time horizons.
 
-One of the most successful examples of such balance is **Renaissance Technologies' Medallion Fund**, widely regarded as the most successful hedge fund in history. The fund is believed to produce **returns exceeding 60% annualized before fees** with remarkably low drawdowns, leading many to speculate that it employs aggressive but risk-aware strategies grounded in probabilistic modeling and adaptive leverage. While its methods remain proprietary, it is reasonable to assume that some form of **dynamic position sizing**, **risk-adjusted return maximization**, and **drawdown control** underlies its performance. This research draws inspiration from these principles to develop a formulaic trading approach tailored for short-term horizons.
+⸻
 
-## 1.2 The Kelly Criterion: Optimal Leverage for Growth
+📐 Background: Key Formulas
 
-The **Kelly Criterion**, introduced by J.L. Kelly in 1956, provides a formula for determining the optimal bet size in repeated probabilistic games to maximize long-term capital growth. In the context of trading, the Kelly fraction for a normally distributed asset return is:
+1. Kelly Criterion
 
-$$
-f^* = \frac{\mu - r_f}{\sigma^2}
-$$
+The Kelly Criterion determines the optimal fraction of capital to allocate to a trade to maximize the long-term growth of wealth:
 
-Where:
-- $f^*$ is the optimal fraction of capital to invest,
-- $\mu$ is the expected return,
-- $r_f$ is the risk-free rate,
-- $\sigma^2$ is the variance of returns.
-
-While theoretically elegant, the Kelly Criterion has practical limitations:
-- It assumes log-normal returns and stationary distributions.
-- It is extremely sensitive to estimation errors in $\mu$ and $\sigma$.
-- It maximizes **long-term** wealth, often at the cost of **short-term** volatility and drawdowns.
-
-To mitigate these issues, traders often use **fractional Kelly** or modify the formula with risk penalties—a principle we adopt in this research.
-
-## 1.3 The Sortino Ratio: Penalizing Downside Risk
-
-The **Sharpe Ratio**, while widely used for evaluating risk-adjusted returns, treats upside and downside volatility equally—a problematic assumption for most traders. The **Sortino Ratio**, developed as an improvement, focuses only on **downside deviation**:
-
-$$
-\text{Sortino Ratio} = \frac{R_p - R_f}{\sigma_d}
-$$
+f^* = \frac{p \cdot b - q}{b}
 
 Where:
-- $R_p$ is the portfolio return,
-- $R_f$ is the risk-free rate,
-- $\sigma_d$ is the standard deviation of **negative** (downside) returns.
+	•	f^* is the optimal fraction of capital to wager
+	•	p is the probability of a win
+	•	q = 1 - p is the probability of a loss
+	•	b is the net odds received on the wager (e.g. 1:1, 2:1, etc.)
 
-This ratio provides a more accurate view of risk from the trader’s perspective, especially in short-term systems where upside volatility is desirable. As such, it aligns well with Kelly’s philosophy of compounding only **net-positive edge**, while introducing an asymmetric risk control mechanism.
+For assets with a known expected return \mu and variance \sigma^2, a continuous form is often used:
 
-## 1.4 The Calmar Ratio: Drawdown-Aware Risk Assessment
+f^* = \frac{\mu}{\sigma^2}
 
-The **Calmar Ratio** is defined as:
+This version relates closely to the Sharpe Ratio, as we’ll see.
 
-$$
-\text{Calmar Ratio} = \frac{\text{Annualized Return}}{\text{Maximum Drawdown}}
-$$
+⸻
 
-Unlike volatility-based measures, the Calmar Ratio accounts for **tail risk and path dependency**, making it particularly suitable for evaluating strategies over finite time windows. In short-term trading, avoiding large drawdowns is essential, not just for capital preservation, but to enable **continuous compounding** and maintain **psychological discipline**.
+2. Sharpe Ratio
 
-## 1.5 Why Combine These?
+The Sharpe Ratio measures the risk-adjusted return by comparing excess return to volatility:
 
-Each of these metrics represents a different perspective on risk and reward:
+\text{Sharpe} = \frac{R_p - R_f}{\sigma_p}
 
-| Metric  | Focus                          | Weakness                                |
-|---------|--------------------------------|------------------------------------------|
-| Kelly   | Long-term growth               | Sensitive to estimation error            |
-| Sortino | Asymmetric risk-adjusted return| Ignores drawdown                         |
-| Calmar  | Path-dependent drawdown control| Ignores return volatility & upside       |
+Where:
+	•	R_p = portfolio return
+	•	R_f = risk-free rate
+	•	\sigma_p = standard deviation of portfolio returns
 
-We propose a unified approach that **synthesizes these metrics** into a composite formula. The goal is to develop a **position sizing and asset selection model** that maximizes short-term profitability while respecting multiple dimensions of risk.We propose a unified approach that **synthesizes these metrics** into a composite formula. The goal is to develop a **position sizing and asset selection model** that maximizes short-term profitability while respecting multiple dimensions of risk.
+This ratio assumes symmetric volatility and penalizes upside and downside equally.
+
+⸻
+
+3. Sortino Ratio
+
+The Sortino Ratio improves on the Sharpe Ratio by focusing on downside volatility only:
+
+\text{Sortino} = \frac{R_p - R_f}{\sigma_D}
+
+Where \sigma_D is the downside deviation, calculated as:
+
+\sigma_D = \sqrt{ \frac{1}{N} \sum_{i=1}^{N} \min(0, R_i - T)^2 }
+
+	•	T = target return (can be set to 0, or a benchmark)
+	•	Penalizes only negative returns, thus better capturing asymmetric risk
+
+⸻
+
+4. Calmar Ratio
+
+The Calmar Ratio emphasizes drawdown risk, useful in trend-following or short-term systems:
+
+\text{Calmar} = \frac{\text{CAGR}}{\text{Max Drawdown}}
+
+Where:
+	•	CAGR = Compound Annual Growth Rate
+	•	Max Drawdown = Maximum observed portfolio loss from peak to trough
+
+This is particularly useful in short-term or leveraged strategies where drawdowns can be fast and deep.
+
+⸻
+
+🧠 Philosophical and Practical Influence: The Medallion Fund
+
+The Medallion Fund, with average annual returns exceeding 66% before fees, is arguably the most successful hedge fund in history. While its inner workings remain secretive, many researchers believe it applies a scientific, probabilistic, and risk-managed framework:
+	•	Position sizing optimized probabilistically (Kelly-like)
+	•	Short holding periods with asymmetric risk (Sortino-like)
+	•	Aggressive drawdown control and capital preservation (Calmar-like)
+
+This fund’s unparalleled performance inspires us to combine mathematically grounded, yet practical, approaches for achieving high reward per unit of downside risk.
