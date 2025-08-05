@@ -16,9 +16,7 @@ The goal of this paper is to explore how these concepts can be harmonized into a
 
 The Kelly Criterion determines the optimal fraction of capital to allocate to a trade to maximize the long-term growth of wealth:
 
-```math
-\f^* = \frac{\mu - r}{\sigma^2}
-```
+$`f^* = \frac{\mu - r}{\sigma^2}`$
 
 Where:
 	•	f^* is the optimal fraction of capital to wager
