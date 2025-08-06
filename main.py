@@ -215,6 +215,133 @@ def calculate_portfolio_allocation(stocks_data, portfolio_value=1000, scaling_fa
         'allocation_percentage': (total_allocation / portfolio_value) * 100
     }
 
+def calculate_dynamic_valuation_thresholds(results_df):
+    """
+    Calculate dynamic valuation thresholds based on actual data distribution
+    
+    Parameters:
+    results_df: DataFrame with stock analysis results
+    
+    Returns:
+    dict: dynamic thresholds for PE, PEG, and P/S ratios
+    """
+    thresholds = {}
+    
+    # PE Ratio thresholds
+    pe_ratios = results_df[results_df['PE_Ratio'] > 0]['PE_Ratio']
+    if not pe_ratios.empty:
+        pe_mean = pe_ratios.mean()
+        pe_std = pe_ratios.std()
+        pe_median = pe_ratios.median()
+        
+        # Dynamic thresholds based on distribution
+        thresholds['pe_low'] = max(10, min(pe_median * 0.7, 25))  # Conservative low threshold
+        thresholds['pe_medium'] = max(20, min(pe_median * 1.2, 40))  # Medium threshold
+        thresholds['pe_high'] = max(30, min(pe_median * 1.8, 60))  # High threshold
+    else:
+        # Fallback to standard thresholds if no data
+        thresholds['pe_low'] = 20
+        thresholds['pe_medium'] = 30
+        thresholds['pe_high'] = 50
+    
+    # PEG Ratio thresholds
+    peg_ratios = results_df[results_df['PEG_Ratio'] > 0]['PEG_Ratio']
+    if not peg_ratios.empty:
+        peg_mean = peg_ratios.mean()
+        peg_median = peg_ratios.median()
+        
+        # Dynamic thresholds based on distribution
+        thresholds['peg_undervalued'] = max(0.5, min(peg_median * 0.6, 1.0))  # Undervalued threshold
+        thresholds['peg_fair'] = max(1.0, min(peg_median * 1.2, 2.0))  # Fair value threshold
+        thresholds['peg_overvalued'] = max(1.5, min(peg_median * 1.8, 3.0))  # Overvalued threshold
+    else:
+        # Fallback to standard thresholds if no data
+        thresholds['peg_undervalued'] = 1.0
+        thresholds['peg_fair'] = 2.0
+        thresholds['peg_overvalued'] = 3.0
+    
+    # P/S Ratio thresholds
+    ps_ratios = results_df[results_df['Price_to_Sales'] > 0]['Price_to_Sales']
+    if not ps_ratios.empty:
+        ps_mean = ps_ratios.mean()
+        ps_median = ps_ratios.median()
+        
+        # Dynamic thresholds based on distribution
+        thresholds['ps_low'] = max(0.5, min(ps_median * 0.5, 1.5))  # Low threshold
+        thresholds['ps_medium'] = max(1.0, min(ps_median * 1.0, 3.0))  # Medium threshold
+        thresholds['ps_high'] = max(2.0, min(ps_median * 1.5, 5.0))  # High threshold
+    else:
+        # Fallback to standard thresholds if no data
+        thresholds['ps_low'] = 1.0
+        thresholds['ps_medium'] = 3.0
+        thresholds['ps_high'] = 5.0
+    
+    return thresholds
+
+def create_equal_weight_allocation(stocks_data, portfolio_value=1000, max_positions=5):
+    """
+    Create a simple equal-weight allocation when Kelly Criterion doesn't find suitable allocations
+    
+    Parameters:
+    stocks_data: list of stock analysis dictionaries
+    portfolio_value: total portfolio value in dollars
+    max_positions: maximum number of positions to hold
+    
+    Returns:
+    dict: portfolio allocation details
+    """
+    # Sort stocks by doubling score (highest first)
+    sorted_stocks = sorted(stocks_data, key=lambda x: x['Doubling_Score'], reverse=True)
+    
+    # Take top stocks up to max_positions
+    selected_stocks = sorted_stocks[:max_positions]
+    
+    if not selected_stocks:
+        return {
+            'allocations': [],
+            'total_allocated': 0,
+            'cash_remaining': portfolio_value,
+            'allocation_percentage': 0
+        }
+    
+    # Calculate equal weight allocation
+    allocation_per_stock = portfolio_value / len(selected_stocks)
+    allocations = []
+    total_allocation = 0
+    
+    for stock in selected_stocks:
+        ticker = stock['Ticker']
+        current_price = stock['Current_Price']
+        
+        # Calculate shares to buy
+        shares_to_buy = int(allocation_per_stock / current_price)
+        actual_allocation = shares_to_buy * current_price
+        
+        allocations.append({
+            'ticker': ticker,
+            'current_price': current_price,
+            'kelly_fraction': 0.0,  # Not calculated for equal weight
+            'scaled_kelly': allocation_per_stock / portfolio_value,
+            'dollar_allocation': actual_allocation,
+            'shares_to_buy': shares_to_buy,
+            'win_probability': 0.5,  # Default assumption
+            'avg_gain': 0.1,  # Default assumption
+            'avg_loss': 0.05,  # Default assumption
+            'volatility': stock.get('Volatility', 0.1),
+            'sharpe_ratio': 0.0,  # Not calculated for equal weight
+            'doubling_score': stock['Doubling_Score'],
+            'reasons': stock['Reasons']
+        })
+        
+        total_allocation += actual_allocation
+    
+    return {
+        'allocations': allocations,
+        'total_allocated': total_allocation,
+        'cash_remaining': portfolio_value - total_allocation,
+        'allocation_percentage': (total_allocation / portfolio_value) * 100
+    }
+
 def calculate_risk_metrics(portfolio_allocation):
     """
     Calculate risk metrics for the portfolio allocation
@@ -550,42 +677,79 @@ def display_confidence_weighted_allocation(portfolio_allocation, portfolio_value
     print("-" * 140)
     
     for i, alloc in enumerate(allocations, 1):
-        print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
-              f"{alloc['base_kelly']:<7.1%} {alloc['confidence_weighted_kelly']:<7.1%} "
-              f"{alloc['scaled_kelly']:<7.1%} ${alloc['dollar_allocation']:<11.2f} "
-              f"{alloc['shares_to_buy']:<8} {alloc['win_probability']:<5.1%} "
-              f"{alloc['win_probability_confidence']:<4.1%} {alloc['avg_gain']:<6.1%} "
-              f"{alloc['avg_gain_confidence']:<4.1%} {alloc['avg_loss']:<6.1%} "
-              f"{alloc['avg_loss_confidence']:<4.1%} {alloc['sample_size']:<6}")
+        # Check if this is a confidence-weighted allocation or fallback equal-weight allocation
+        if 'base_kelly' in alloc:
+            # Confidence-weighted allocation
+            print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+                  f"{alloc['base_kelly']:<7.1%} {alloc['confidence_weighted_kelly']:<7.1%} "
+                  f"{alloc['scaled_kelly']:<7.1%} ${alloc['dollar_allocation']:<11.2f} "
+                  f"{alloc['shares_to_buy']:<8} {alloc['win_probability']:<5.1%} "
+                  f"{alloc['win_probability_confidence']:<4.1%} {alloc['avg_gain']:<6.1%} "
+                  f"{alloc['avg_gain_confidence']:<4.1%} {alloc['avg_loss']:<6.1%} "
+                  f"{alloc['avg_loss_confidence']:<4.1%} {alloc['sample_size']:<6}")
+        else:
+            # Fallback equal-weight allocation
+            print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+                  f"{'N/A':<7} {'N/A':<7} "
+                  f"{alloc['scaled_kelly']:<7.1%} ${alloc['dollar_allocation']:<11.2f} "
+                  f"{alloc['shares_to_buy']:<8} {alloc['win_probability']:<5.1%} "
+                  f"{'N/A':<4} {alloc['avg_gain']:<6.1%} "
+                  f"{'N/A':<4} {alloc['avg_loss']:<6.1%} "
+                  f"{'N/A':<4} {'N/A':<6}")
     
     print(f"\n🎯 DETAILED CONFIDENCE ANALYSIS:")
     print("-" * 120)
     
     for i, alloc in enumerate(allocations[:5], 1):  # Show top 5
-        print(f"\n🥇 #{i}: {alloc['ticker']} - Confidence-Weighted Kelly")
-        print(f"   Current Price: ${alloc['current_price']:.2f}")
-        print(f"   Base Kelly: {alloc['base_kelly']:.1%}")
-        print(f"   Confidence-Weighted Kelly: {alloc['confidence_weighted_kelly']:.1%}")
-        print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%}")
-        print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
-        print(f"   Shares to Buy: {alloc['shares_to_buy']}")
-        print(f"   Win Probability: {alloc['win_probability']:.1%} (Confidence: {alloc['win_probability_confidence']:.1%})")
-        print(f"   Average Gain: {alloc['avg_gain']:.1%} (Confidence: {alloc['avg_gain_confidence']:.1%})")
-        print(f"   Average Loss: {alloc['avg_loss']:.1%} (Confidence: {alloc['avg_loss_confidence']:.1%})")
-        print(f"   Volatility: {alloc['volatility']:.1%}")
-        print(f"   Overall Confidence Factor: {alloc['confidence_factor']:.1%}")
-        print(f"   Sample Size: {alloc['sample_size']} days")
-        print(f"   Doubling Score: {alloc['doubling_score']}")
-        print(f"   Reasons: {alloc['reasons']}")
+        # Check if this is a confidence-weighted allocation or fallback equal-weight allocation
+        if 'base_kelly' in alloc:
+            print(f"\n🥇 #{i}: {alloc['ticker']} - Confidence-Weighted Kelly")
+            print(f"   Current Price: ${alloc['current_price']:.2f}")
+            print(f"   Base Kelly: {alloc['base_kelly']:.1%}")
+            print(f"   Confidence-Weighted Kelly: {alloc['confidence_weighted_kelly']:.1%}")
+            print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%}")
+            print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+            print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+            print(f"   Win Probability: {alloc['win_probability']:.1%} (Confidence: {alloc['win_probability_confidence']:.1%})")
+            print(f"   Average Gain: {alloc['avg_gain']:.1%} (Confidence: {alloc['avg_gain_confidence']:.1%})")
+            print(f"   Average Loss: {alloc['avg_loss']:.1%} (Confidence: {alloc['avg_loss_confidence']:.1%})")
+            print(f"   Volatility: {alloc['volatility']:.1%}")
+            print(f"   Overall Confidence Factor: {alloc['confidence_factor']:.1%}")
+            print(f"   Sample Size: {alloc['sample_size']} days")
+            print(f"   Doubling Score: {alloc['doubling_score']}")
+            print(f"   Reasons: {alloc['reasons']}")
+        else:
+            print(f"\n🥇 #{i}: {alloc['ticker']} - Equal-Weight Allocation")
+            print(f"   Current Price: ${alloc['current_price']:.2f}")
+            print(f"   Weight: {alloc['scaled_kelly']:.1%}")
+            print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+            print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+            print(f"   Win Probability: {alloc['win_probability']:.1%}")
+            print(f"   Average Gain: {alloc['avg_gain']:.1%}")
+            print(f"   Average Loss: {alloc['avg_loss']:.1%}")
+            print(f"   Volatility: {alloc['volatility']:.1%}")
+            print(f"   Doubling Score: {alloc['doubling_score']}")
+            print(f"   Reasons: {alloc['reasons']}")
     
-    print(f"\n⚠️  CONFIDENCE-BASED RISK MANAGEMENT:")
-    print("-" * 60)
-    print("• Higher confidence = larger position sizes")
-    print("• Lower confidence = smaller position sizes")
-    print("• Sample size affects confidence levels")
-    print("• Confidence intervals provide uncertainty bounds")
-    print("• Risk aversion factor adjusts for conservative estimates")
-    print("• Recalculate confidence levels monthly with new data")
+    # Check if this is a confidence-weighted allocation or fallback equal-weight allocation
+    if allocations and 'base_kelly' in allocations[0]:
+        print(f"\n⚠️  CONFIDENCE-BASED RISK MANAGEMENT:")
+        print("-" * 60)
+        print("• Higher confidence = larger position sizes")
+        print("• Lower confidence = smaller position sizes")
+        print("• Sample size affects confidence levels")
+        print("• Confidence intervals provide uncertainty bounds")
+        print("• Risk aversion factor adjusts for conservative estimates")
+        print("• Recalculate confidence levels monthly with new data")
+    else:
+        print(f"\n⚠️  EQUAL-WEIGHT RISK MANAGEMENT:")
+        print("-" * 60)
+        print("• Equal weight distribution across top stocks")
+        print("• Based on doubling scores when Kelly Criterion unavailable")
+        print("• Conservative approach with balanced risk")
+        print("• Rebalance monthly based on updated scores")
+        print("• Monitor individual stock performance")
+        print("• Consider transitioning to Kelly when data improves")
 
 # Unified Risk-Reward Metric Functions (Inspired by Medallion Fund Principles)
 def calculate_sortino_ratio(returns, target_return=0.0, risk_free_rate=0.05):
@@ -855,38 +1019,71 @@ def display_medallion_style_allocation(portfolio_allocation, portfolio_value=100
     print("-" * 160)
     
     for i, alloc in enumerate(allocations, 1):
-        print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
-              f"{alloc['unified_score']:<7.1%} {alloc['kelly_score']:<7.1%} "
-              f"{alloc['sortino_score']:<7.1%} {alloc['calmar_score']:<7.1%} "
-              f"${alloc['dollar_allocation']:<11.2f} {alloc['shares_to_buy']:<8} "
-              f"{alloc['kelly_ratio']:<6.1%} {alloc['sortino_ratio']:<6.2f} {alloc['calmar_ratio']:<6.2f}")
+        # Check if this is a Medallion-style allocation or fallback equal-weight allocation
+        if 'unified_score' in alloc:
+            # Medallion-style allocation
+            print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+                  f"{alloc['unified_score']:<7.1%} {alloc['kelly_score']:<7.1%} "
+                  f"{alloc['sortino_score']:<7.1%} {alloc['calmar_score']:<7.1%} "
+                  f"${alloc['dollar_allocation']:<11.2f} {alloc['shares_to_buy']:<8} "
+                  f"{alloc['kelly_ratio']:<6.1%} {alloc['sortino_ratio']:<6.2f} {alloc['calmar_ratio']:<6.2f}")
+        else:
+            # Fallback equal-weight allocation
+            print(f"{i:<4} {alloc['ticker']:<8} ${alloc['current_price']:<7.2f} "
+                  f"{'N/A':<7} {'N/A':<7} "
+                  f"{'N/A':<7} {'N/A':<7} "
+                  f"${alloc['dollar_allocation']:<11.2f} {alloc['shares_to_buy']:<8} "
+                  f"{'N/A':<6} {'N/A':<6} {'N/A':<6}")
     
     print(f"\n🎯 DETAILED UNIFIED ANALYSIS:")
     print("-" * 140)
     
     for i, alloc in enumerate(allocations[:5], 1):  # Show top 5
-        print(f"\n🏆 #{i}: {alloc['ticker']} - Medallion-Style Allocation")
-        print(f"   Current Price: ${alloc['current_price']:.2f}")
-        print(f"   Unified Score: {alloc['unified_score']:.1%}")
-        print(f"   Risk-Adjusted Kelly: {alloc['risk_adjusted_kelly']:.1%}")
-        print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%}")
-        print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
-        print(f"   Shares to Buy: {alloc['shares_to_buy']}")
-        print(f"   Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}")
-        print(f"   Sharpe Ratio: {alloc['sharpe_ratio']:.2f} | Volatility: {alloc['volatility']:.1%}")
-        print(f"   Win Probability: {alloc['win_probability']:.1%} | Confidence: {alloc['confidence_factor']:.1%}")
-        print(f"   Max Drawdown: {alloc['max_drawdown']:.1%} | Sample Size: {alloc['sample_size']} days")
-        print(f"   Doubling Score: {alloc['doubling_score']}")
-        print(f"   Reasons: {alloc['reasons']}")
+        # Check if this is a Medallion-style allocation or fallback equal-weight allocation
+        if 'unified_score' in alloc:
+            print(f"\n🏆 #{i}: {alloc['ticker']} - Medallion-Style Allocation")
+            print(f"   Current Price: ${alloc['current_price']:.2f}")
+            print(f"   Unified Score: {alloc['unified_score']:.1%}")
+            print(f"   Risk-Adjusted Kelly: {alloc['risk_adjusted_kelly']:.1%}")
+            print(f"   Scaled Allocation: {alloc['scaled_kelly']:.1%}")
+            print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+            print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+            print(f"   Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}")
+            print(f"   Sharpe Ratio: {alloc['sharpe_ratio']:.2f} | Volatility: {alloc['volatility']:.1%}")
+            print(f"   Win Probability: {alloc['win_probability']:.1%} | Confidence: {alloc['confidence_factor']:.1%}")
+            print(f"   Max Drawdown: {alloc['max_drawdown']:.1%} | Sample Size: {alloc['sample_size']} days")
+            print(f"   Doubling Score: {alloc['doubling_score']}")
+            print(f"   Reasons: {alloc['reasons']}")
+        else:
+            print(f"\n🏆 #{i}: {alloc['ticker']} - Equal-Weight Allocation")
+            print(f"   Current Price: ${alloc['current_price']:.2f}")
+            print(f"   Weight: {alloc['scaled_kelly']:.1%}")
+            print(f"   Dollar Allocation: ${alloc['dollar_allocation']:.2f}")
+            print(f"   Shares to Buy: {alloc['shares_to_buy']}")
+            print(f"   Win Probability: {alloc['win_probability']:.1%}")
+            print(f"   Volatility: {alloc['volatility']:.1%}")
+            print(f"   Doubling Score: {alloc['doubling_score']}")
+            print(f"   Reasons: {alloc['reasons']}")
     
-    print(f"\n💡 MEDALLION-STYLE PRINCIPLES:")
-    print("-" * 60)
-    print("• **Kelly Criterion (40%)**: Optimal position sizing for growth")
-    print("• **Sortino Ratio (30%)**: Focus on downside risk only")
-    print("• **Calmar Ratio (30%)**: Drawdown control and capital preservation")
-    print("• **Unified Score**: Combines all three metrics for optimal allocation")
-    print("• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score")
-    print("• **Short-term focus**: Designed for active trading strategies")
+    # Check if this is a Medallion-style allocation or fallback equal-weight allocation
+    if allocations and 'unified_score' in allocations[0]:
+        print(f"\n💡 MEDALLION-STYLE PRINCIPLES:")
+        print("-" * 60)
+        print("• **Kelly Criterion (40%)**: Optimal position sizing for growth")
+        print("• **Sortino Ratio (30%)**: Focus on downside risk only")
+        print("• **Calmar Ratio (30%)**: Drawdown control and capital preservation")
+        print("• **Unified Score**: Combines all three metrics for optimal allocation")
+        print("• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score")
+        print("• **Short-term focus**: Designed for active trading strategies")
+    else:
+        print(f"\n💡 EQUAL-WEIGHT PRINCIPLES:")
+        print("-" * 60)
+        print("• **Equal Distribution**: Balanced allocation across top stocks")
+        print("• **Score-Based Selection**: Based on doubling scores when Kelly unavailable")
+        print("• **Conservative Approach**: Reduced risk through diversification")
+        print("• **Simple Strategy**: Easy to understand and implement")
+        print("• **Monthly Rebalancing**: Regular updates based on new data")
+        print("• **Transition Ready**: Can switch to Kelly when data improves")
 
 def calculate_dynamic_holding_timeframe(unified_score, volatility, max_drawdown, calmar_ratio, sortino_ratio, base_holding_days=1.5):
     """
@@ -1018,14 +1215,43 @@ def display_dynamic_holding_timeframes(portfolio_allocation):
     holding_data = []
     
     for i, alloc in enumerate(allocations, 1):
-        # Calculate dynamic holding timeframe
-        holding_info = calculate_dynamic_holding_timeframe(
-            unified_score=alloc['unified_score'],
-            volatility=alloc['volatility'],
-            max_drawdown=alloc['max_drawdown'],
-            calmar_ratio=alloc['calmar_ratio'],
-            sortino_ratio=alloc['sortino_ratio']
-        )
+        # Check if this is a Medallion-style allocation or fallback equal-weight allocation
+        if 'unified_score' in alloc:
+            # Calculate dynamic holding timeframe for Medallion-style allocation
+            holding_info = calculate_dynamic_holding_timeframe(
+                unified_score=alloc['unified_score'],
+                volatility=alloc['volatility'],
+                max_drawdown=alloc['max_drawdown'],
+                calmar_ratio=alloc['calmar_ratio'],
+                sortino_ratio=alloc['sortino_ratio']
+            )
+            
+            print(f"{i:<4} {alloc['ticker']:<8} {alloc['unified_score']:<7.1%} "
+                  f"{alloc['volatility']:<5.1%} {alloc['max_drawdown']:<9.1%} "
+                  f"{alloc['calmar_ratio']:<6.2f} {alloc['sortino_ratio']:<6.2f} "
+                  f"{holding_info['holding_days']:<5} {holding_info['risk_level'][:24]:<24} "
+                  f"{holding_info['rebalancing_frequency']:<15}")
+        else:
+            # Fallback equal-weight allocation - use simplified holding timeframe
+            holding_info = {
+                'holding_days': 30,  # Default 30-day holding period
+                'risk_level': 'Medium',
+                'rebalancing_frequency': 'Monthly',
+                'exit_strategy': 'Standard exit at 10-15% gains',
+                'factors': {
+                    'unified_adjustment': 1.0,
+                    'volatility_factor': 1.0,
+                    'drawdown_factor': 1.0,
+                    'calmar_factor': 1.0,
+                    'sortino_factor': 1.0
+                }
+            }
+            
+            print(f"{i:<4} {alloc['ticker']:<8} {'N/A':<7} "
+                  f"{alloc['volatility']:<5.1%} {'N/A':<9} "
+                  f"{'N/A':<6} {'N/A':<6} "
+                  f"{holding_info['holding_days']:<5} {holding_info['risk_level'][:24]:<24} "
+                  f"{holding_info['rebalancing_frequency']:<15}")
         
         holding_data.append({
             'rank': i,
@@ -1033,12 +1259,6 @@ def display_dynamic_holding_timeframes(portfolio_allocation):
             'holding_info': holding_info,
             'allocation': alloc
         })
-        
-        print(f"{i:<4} {alloc['ticker']:<8} {alloc['unified_score']:<7.1%} "
-              f"{alloc['volatility']:<5.1%} {alloc['max_drawdown']:<9.1%} "
-              f"{alloc['calmar_ratio']:<6.2f} {alloc['sortino_ratio']:<6.2f} "
-              f"{holding_info['holding_days']:<5} {holding_info['risk_level'][:24]:<24} "
-              f"{holding_info['rebalancing_frequency']:<15}")
     
     print(f"\n🎯 DETAILED HOLDING TIMEFRAME ANALYSIS:")
     print("-" * 120)
@@ -1048,24 +1268,34 @@ def display_dynamic_holding_timeframes(portfolio_allocation):
         holding = data['holding_info']
         
         print(f"\n⏰ #{data['rank']}: {alloc['ticker']} - Dynamic Holding Timeframe")
-        print(f"   {holding['risk_color']} Risk Level: {holding['risk_level']}")
+        print(f"   📊 Risk Level: {holding['risk_level']}")
         print(f"   📅 Holding Period: {holding['holding_days']} days")
         print(f"   🔄 Rebalancing: {holding['rebalancing_frequency']}")
         print(f"   🎯 Exit Strategy: {holding['exit_strategy']}")
-        print(f"   📊 Unified Score: {alloc['unified_score']:.1%}")
-        print(f"   📈 Volatility: {alloc['volatility']:.1%}")
-        print(f"   📉 Max Drawdown: {alloc['max_drawdown']:.1%}")
-        print(f"   📊 Calmar Ratio: {alloc['calmar_ratio']:.2f}")
-        print(f"   📊 Sortino Ratio: {alloc['sortino_ratio']:.2f}")
         
-        # Show adjustment factors
-        factors = holding['factors']
-        print(f"   🔧 Adjustment Factors:")
-        print(f"      - Unified Score: {factors['unified_adjustment']:.2f}x")
-        print(f"      - Volatility: {factors['volatility_factor']:.2f}x")
-        print(f"      - Drawdown: {factors['drawdown_factor']:.2f}x")
-        print(f"      - Calmar: {factors['calmar_factor']:.2f}x")
-        print(f"      - Sortino: {factors['sortino_factor']:.2f}x")
+        # Check if this is a Medallion-style allocation or fallback equal-weight allocation
+        if 'unified_score' in alloc:
+            print(f"   📊 Unified Score: {alloc['unified_score']:.1%}")
+            print(f"   📈 Volatility: {alloc['volatility']:.1%}")
+            print(f"   📉 Max Drawdown: {alloc['max_drawdown']:.1%}")
+            print(f"   📊 Calmar Ratio: {alloc['calmar_ratio']:.2f}")
+            print(f"   📊 Sortino Ratio: {alloc['sortino_ratio']:.2f}")
+            
+            # Show adjustment factors
+            factors = holding['factors']
+            print(f"   🔧 Adjustment Factors:")
+            print(f"      - Unified Score: {factors['unified_adjustment']:.2f}x")
+            print(f"      - Volatility: {factors['volatility_factor']:.2f}x")
+            print(f"      - Drawdown: {factors['drawdown_factor']:.2f}x")
+            print(f"      - Calmar: {factors['calmar_factor']:.2f}x")
+            print(f"      - Sortino: {factors['sortino_factor']:.2f}x")
+        else:
+            print(f"   📊 Unified Score: N/A (Equal-weight allocation)")
+            print(f"   📈 Volatility: {alloc['volatility']:.1%}")
+            print(f"   📉 Max Drawdown: N/A (Equal-weight allocation)")
+            print(f"   📊 Calmar Ratio: N/A (Equal-weight allocation)")
+            print(f"   📊 Sortino Ratio: N/A (Equal-weight allocation)")
+            print(f"   🔧 Adjustment Factors: Standard (1.0x) - Equal-weight allocation")
     
     # Portfolio-level recommendations
     avg_holding_days = sum(data['holding_info']['holding_days'] for data in holding_data) / len(holding_data)
@@ -1364,15 +1594,29 @@ def analyze_stock_potential(ticker):
             
         current_price = hist['Close'].iloc[-1]
         
+        # Calculate custom PEG ratio if Yahoo Finance doesn't provide it
+        yf_peg = info.get('pegRatio', 0)
+        earnings_growth = info.get('earningsGrowth', 0)
+        pe_ratio = info.get('trailingPE', 0)
+        
+        # Calculate custom PEG if we have PE and earnings growth but no PEG
+        custom_peg = 0
+        if yf_peg == 0 and pe_ratio > 0 and earnings_growth > 0:
+            custom_peg = pe_ratio / (earnings_growth * 100)  # Convert growth to decimal
+        
+        # Use Yahoo Finance PEG if available, otherwise use custom calculation
+        final_peg = yf_peg if yf_peg > 0 else custom_peg
+        
         analysis = {
             'Ticker': ticker,
             'Current_Price': current_price,
             'Market_Cap': info.get('marketCap', 0),
             'Volume_Avg': info.get('averageVolume', 0),
             'Beta': info.get('beta', 0),
-            'PE_Ratio': info.get('trailingPE', 0),
+            'PE_Ratio': pe_ratio,
             'Forward_PE': info.get('forwardPE', 0),
-            'PEG_Ratio': info.get('pegRatio', 0),
+            'PEG_Ratio': final_peg,
+            'Price_to_Sales': info.get('priceToSalesTrailing12Months', 0),
             'Price_to_Book': info.get('priceToBook', 0),
             'Debt_to_Equity': info.get('debtToEquity', 0),
             'ROE': info.get('returnOnEquity', 0),
@@ -1380,7 +1624,7 @@ def analyze_stock_potential(ticker):
             'Profit_Margins': info.get('profitMargins', 0),
             'Operating_Margins': info.get('operatingMargins', 0),
             'Revenue_Growth': info.get('revenueGrowth', 0),
-            'Earnings_Growth': info.get('earningsGrowth', 0),
+            'Earnings_Growth': earnings_growth,
             'Analyst_Target': info.get('targetMeanPrice', 0),
             'Analyst_Recommendation': info.get('recommendationMean', 0),
             'Insider_Ownership': 0,
@@ -1464,6 +1708,10 @@ def analyze_stock_potential(ticker):
         if analysis['Earnings_Growth'] and analysis['Earnings_Growth'] > 0.3:
             doubling_score += 10
             reasons.append("Strong earnings growth")
+        
+        # Valuation metrics - will be updated with dynamic thresholds in main function
+        # Placeholder for dynamic valuation scoring
+        pass
         
         # Ownership
         if analysis['Insider_Ownership'] > 20:
@@ -2094,7 +2342,7 @@ def get_reddit_trending_stocks():
     
     return list(reddit_stocks)
 
-def post_results_to_reddit(results_df, options_found, portfolio_allocation=None, confidence_allocation=None, medallion_allocation=None):
+def post_results_to_reddit(results_df, options_found, portfolio_allocation=None, confidence_allocation=None, medallion_allocation=None, thresholds=None):
     """Post screener results to Reddit"""
     try:
         # Check if Reddit credentials are available
@@ -2124,10 +2372,66 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
             text += f"**#{i}: {row['Ticker']}** - Score: {row['Doubling_Score']}\n"
             text += f"- Price: ${row['Current_Price']:.2f} | Market Cap: ${row['Market_Cap']:,.0f}\n"
             text += f"- Daily Change: {row['Price_Change_1D']:+.1f}% | Volume Spike: {row['Volume_Spike']:.1f}x\n"
+            
+            # Add valuation metrics with dynamic thresholds
+            valuation_info = []
+            if row['PE_Ratio'] > 0:
+                # Dynamic PE status based on thresholds passed from main function
+                pe_status = "Low" if row['PE_Ratio'] < thresholds.get('pe_low', 20) else "Medium" if row['PE_Ratio'] < thresholds.get('pe_medium', 30) else "High"
+                valuation_info.append(f"PE: {row['PE_Ratio']:.1f} ({pe_status})")
+            
+            if row['PEG_Ratio'] > 0:
+                # Dynamic PEG status based on thresholds passed from main function
+                peg_status = "Undervalued" if row['PEG_Ratio'] < thresholds.get('peg_undervalued', 1) else "Fair" if row['PEG_Ratio'] < thresholds.get('peg_fair', 2) else "Overvalued"
+                valuation_info.append(f"PEG: {row['PEG_Ratio']:.1f} ({peg_status})")
+            
+            if row['Price_to_Sales'] > 0:
+                # Dynamic P/S status based on thresholds passed from main function
+                ps_status = "Low" if row['Price_to_Sales'] < thresholds.get('ps_low', 1) else "Medium" if row['Price_to_Sales'] < thresholds.get('ps_medium', 3) else "High"
+                valuation_info.append(f"P/S: {row['Price_to_Sales']:.1f} ({ps_status})")
+            
+            if valuation_info:
+                text += f"- Valuation: {' | '.join(valuation_info)}\n"
+            
             if row['Analyst_Target'] > 0:
                 target_potential = ((row['Analyst_Target'] - row['Current_Price']) / row['Current_Price']) * 100
                 text += f"- Analyst Target: ${row['Analyst_Target']:.2f} ({target_potential:+.1f}% potential)\n"
             text += f"- Reasons: {row['Reasons']}\n\n"
+        
+        # Add Valuation Summary
+        text += "## 📊 VALUATION SUMMARY\n\n"
+        
+        # Calculate valuation statistics
+        pe_ratios = results_df[results_df['PE_Ratio'] > 0]['PE_Ratio']
+        peg_ratios = results_df[results_df['PEG_Ratio'] > 0]['PEG_Ratio']
+        ps_ratios = results_df[results_df['Price_to_Sales'] > 0]['Price_to_Sales']
+        
+        if not pe_ratios.empty:
+            pe_low_threshold = thresholds.get('pe_low', 20) if thresholds else 20
+            pe_high_threshold = thresholds.get('pe_high', 30) if thresholds else 30
+            text += f"**PE Ratio Stats:**\n"
+            text += f"- Average: {pe_ratios.mean():.1f} | Median: {pe_ratios.median():.1f}\n"
+            text += f"- Range: {pe_ratios.min():.1f} - {pe_ratios.max():.1f}\n"
+            text += f"- Low PE (<{pe_low_threshold:.1f}): {len(pe_ratios[pe_ratios < pe_low_threshold])} stocks\n"
+            text += f"- High PE (>{pe_high_threshold:.1f}): {len(pe_ratios[pe_ratios > pe_high_threshold])} stocks\n\n"
+        
+        if not peg_ratios.empty:
+            peg_undervalued_threshold = thresholds.get('peg_undervalued', 1) if thresholds else 1
+            peg_overvalued_threshold = thresholds.get('peg_overvalued', 2) if thresholds else 2
+            text += f"**PEG Ratio Stats:**\n"
+            text += f"- Average: {peg_ratios.mean():.1f} | Median: {peg_ratios.median():.1f}\n"
+            text += f"- Range: {peg_ratios.min():.1f} - {peg_ratios.max():.1f}\n"
+            text += f"- Undervalued (<{peg_undervalued_threshold:.1f}): {len(peg_ratios[peg_ratios < peg_undervalued_threshold])} stocks\n"
+            text += f"- Overvalued (>{peg_overvalued_threshold:.1f}): {len(peg_ratios[peg_ratios > peg_overvalued_threshold])} stocks\n\n"
+        
+        if not ps_ratios.empty:
+            ps_low_threshold = thresholds.get('ps_low', 1) if thresholds else 1
+            ps_high_threshold = thresholds.get('ps_high', 3) if thresholds else 3
+            text += f"**P/S Ratio Stats:**\n"
+            text += f"- Average: {ps_ratios.mean():.1f} | Median: {ps_ratios.median():.1f}\n"
+            text += f"- Range: {ps_ratios.min():.1f} - {ps_ratios.max():.1f}\n"
+            text += f"- Low P/S (<{ps_low_threshold:.1f}): {len(ps_ratios[ps_ratios < ps_low_threshold])} stocks\n"
+            text += f"- High P/S (>{ps_high_threshold:.1f}): {len(ps_ratios[ps_ratios > ps_high_threshold])} stocks\n\n"
         
         # Add Kelly Criterion Portfolio Allocation
         if portfolio_allocation and portfolio_allocation['allocations']:
@@ -2140,9 +2444,32 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
             
             text += "**Top Kelly Allocations:**\n"
             for i, alloc in enumerate(portfolio_allocation['allocations'][:5], 1):
+                # Get valuation data from results_df
+                stock_data = results_df[results_df['Ticker'] == alloc['ticker']].iloc[0] if len(results_df[results_df['Ticker'] == alloc['ticker']]) > 0 else None
+                
                 text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
                 text += f"   - Shares: {alloc['shares_to_buy']} | Win Rate: {alloc['win_probability']:.1%}\n"
-                text += f"   - Kelly Score: {alloc['kelly_fraction']:.1%} | Doubling Score: {alloc['doubling_score']}\n\n"
+                text += f"   - Kelly Score: {alloc['kelly_fraction']:.1%} | Doubling Score: {alloc['doubling_score']}\n"
+                
+                # Add valuation metrics if available
+                if stock_data is not None:
+                    valuation_info = []
+                    if stock_data['PE_Ratio'] > 0:
+                        pe_status = "Low" if stock_data['PE_Ratio'] < thresholds.get('pe_low', 20) else "Medium" if stock_data['PE_Ratio'] < thresholds.get('pe_medium', 30) else "High"
+                        valuation_info.append(f"PE: {stock_data['PE_Ratio']:.1f} ({pe_status})")
+                    
+                    if stock_data['PEG_Ratio'] > 0:
+                        peg_status = "Undervalued" if stock_data['PEG_Ratio'] < thresholds.get('peg_undervalued', 1) else "Fair" if stock_data['PEG_Ratio'] < thresholds.get('peg_fair', 2) else "Overvalued"
+                        valuation_info.append(f"PEG: {stock_data['PEG_Ratio']:.1f} ({peg_status})")
+                    
+                    if stock_data['Price_to_Sales'] > 0:
+                        ps_status = "Low" if stock_data['Price_to_Sales'] < thresholds.get('ps_low', 1) else "Medium" if stock_data['Price_to_Sales'] < thresholds.get('ps_medium', 3) else "High"
+                        valuation_info.append(f"P/S: {stock_data['Price_to_Sales']:.1f} ({ps_status})")
+                    
+                    if valuation_info:
+                        text += f"   - Valuation: {' | '.join(valuation_info)}\n"
+                
+                text += "\n"
         
         # Add Confidence-Weighted Kelly Comparison
         if confidence_allocation and confidence_allocation['allocations']:
@@ -2166,9 +2493,38 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
             
             text += "**Top Confidence-Weighted Allocations:**\n"
             for i, alloc in enumerate(confidence_allocation['allocations'][:3], 1):
+                # Get valuation data from results_df
+                stock_data = results_df[results_df['Ticker'] == alloc['ticker']].iloc[0] if len(results_df[results_df['Ticker'] == alloc['ticker']]) > 0 else None
+                
                 text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
-                text += f"   - Confidence: {alloc['confidence_factor']:.1%} | Sample Size: {alloc['sample_size']} days\n"
-                text += f"   - Win Rate: {alloc['win_probability']:.1%} | Volatility: {alloc['volatility']:.1%}\n\n"
+                
+                # Check if this is a confidence-weighted allocation or fallback equal-weight allocation
+                if 'confidence_factor' in alloc:
+                    text += f"   - Confidence: {alloc['confidence_factor']:.1%} | Sample Size: {alloc['sample_size']} days\n"
+                else:
+                    text += f"   - Confidence: N/A (Equal-weight allocation) | Sample Size: N/A\n"
+                
+                text += f"   - Win Rate: {alloc['win_probability']:.1%} | Volatility: {alloc['volatility']:.1%}\n"
+                
+                # Add valuation metrics if available
+                if stock_data is not None:
+                    valuation_info = []
+                    if stock_data['PE_Ratio'] > 0:
+                        pe_status = "Low" if stock_data['PE_Ratio'] < thresholds.get('pe_low', 20) else "Medium" if stock_data['PE_Ratio'] < thresholds.get('pe_medium', 30) else "High"
+                        valuation_info.append(f"PE: {stock_data['PE_Ratio']:.1f} ({pe_status})")
+                    
+                    if stock_data['PEG_Ratio'] > 0:
+                        peg_status = "Undervalued" if stock_data['PEG_Ratio'] < thresholds.get('peg_undervalued', 1) else "Fair" if stock_data['PEG_Ratio'] < thresholds.get('peg_fair', 2) else "Overvalued"
+                        valuation_info.append(f"PEG: {stock_data['PEG_Ratio']:.1f} ({peg_status})")
+                    
+                    if stock_data['Price_to_Sales'] > 0:
+                        ps_status = "Low" if stock_data['Price_to_Sales'] < thresholds.get('ps_low', 1) else "Medium" if stock_data['Price_to_Sales'] < thresholds.get('ps_medium', 3) else "High"
+                        valuation_info.append(f"P/S: {stock_data['Price_to_Sales']:.1f} ({ps_status})")
+                    
+                    if valuation_info:
+                        text += f"   - Valuation: {' | '.join(valuation_info)}\n"
+                
+                text += "\n"
     
         # Add Medallion-Style Analysis
         if medallion_allocation and medallion_allocation['allocations']:
@@ -2178,28 +2534,76 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
             text += f"- Cash Remaining: ${medallion_allocation['cash_remaining']:.0f}\n"
             text += f"- Allocation %: {medallion_allocation['allocation_percentage']:.1f}%\n"
             text += f"- Number of Positions: {len(medallion_allocation['allocations'])}\n\n"
-            
-            text += f"**Medallion-Style Summary:**\n"
-            text += f"- Total Allocated: ${medallion_allocation['total_allocated']:.0f}\n"
-            text += f"- Cash Remaining: ${medallion_allocation['cash_remaining']:.0f}\n"
-            text += f"- Allocation %: {medallion_allocation['allocation_percentage']:.1f}%\n"
-            text += f"- Number of Positions: {len(medallion_allocation['allocations'])}\n\n"
         
             text += "**Top Medallion-Style Allocations:**\n"
             for i, alloc in enumerate(medallion_allocation['allocations'][:3], 1):
-                 # Calculate holding timeframe for this allocation
-                 holding_info = calculate_dynamic_holding_timeframe(
-                     unified_score=alloc['unified_score'],
-                     volatility=alloc['volatility'],
-                     max_drawdown=alloc['max_drawdown'],
-                     calmar_ratio=alloc['calmar_ratio'],
-                     sortino_ratio=alloc['sortino_ratio']
-                 )
-                 
-                 text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
-                 text += f"   - Unified Score: {alloc['unified_score']:.1%} | Kelly: {alloc['kelly_score']:.1%} | Sortino: {alloc['sortino_score']:.1%} | Calmar: {alloc['calmar_score']:.1%}\n"
-                 text += f"   - Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}\n"
-                 text += f"   - Holding Period: {holding_info['holding_days']} days | Risk: {holding_info['risk_level']} | Rebalance: {holding_info['rebalancing_frequency']}\n\n"
+                # Check if this is a Medallion-style allocation or fallback equal-weight allocation
+                if 'unified_score' in alloc:
+                    # Calculate holding timeframe for this allocation
+                    holding_info = calculate_dynamic_holding_timeframe(
+                        unified_score=alloc['unified_score'],
+                        volatility=alloc['volatility'],
+                        max_drawdown=alloc['max_drawdown'],
+                        calmar_ratio=alloc['calmar_ratio'],
+                        sortino_ratio=alloc['sortino_ratio']
+                    )
+                    
+                    # Get valuation data from results_df
+                    stock_data = results_df[results_df['Ticker'] == alloc['ticker']].iloc[0] if len(results_df[results_df['Ticker'] == alloc['ticker']]) > 0 else None
+                    
+                    text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
+                    text += f"   - Unified Score: {alloc['unified_score']:.1%} | Kelly: {alloc['kelly_score']:.1%} | Sortino: {alloc['sortino_score']:.1%} | Calmar: {alloc['calmar_score']:.1%}\n"
+                    text += f"   - Kelly Ratio: {alloc['kelly_ratio']:.1%} | Sortino Ratio: {alloc['sortino_ratio']:.2f} | Calmar Ratio: {alloc['calmar_ratio']:.2f}\n"
+                    text += f"   - Holding Period: {holding_info['holding_days']} days | Risk: {holding_info['risk_level']} | Rebalance: {holding_info['rebalancing_frequency']}\n"
+                    
+                    # Add valuation metrics if available
+                    if stock_data is not None:
+                        valuation_info = []
+                        if stock_data['PE_Ratio'] > 0:
+                            pe_status = "Low" if stock_data['PE_Ratio'] < thresholds.get('pe_low', 20) else "Medium" if stock_data['PE_Ratio'] < thresholds.get('pe_medium', 30) else "High"
+                            valuation_info.append(f"PE: {stock_data['PE_Ratio']:.1f} ({pe_status})")
+                        
+                        if stock_data['PEG_Ratio'] > 0:
+                            peg_status = "Undervalued" if stock_data['PEG_Ratio'] < thresholds.get('peg_undervalued', 1) else "Fair" if stock_data['PEG_Ratio'] < thresholds.get('peg_fair', 2) else "Overvalued"
+                            valuation_info.append(f"PEG: {stock_data['PEG_Ratio']:.1f} ({peg_status})")
+                        
+                        if stock_data['Price_to_Sales'] > 0:
+                            ps_status = "Low" if stock_data['Price_to_Sales'] < thresholds.get('ps_low', 1) else "Medium" if stock_data['Price_to_Sales'] < thresholds.get('ps_medium', 3) else "High"
+                            valuation_info.append(f"P/S: {stock_data['Price_to_Sales']:.1f} ({ps_status})")
+                        
+                        if valuation_info:
+                            text += f"   - Valuation: {' | '.join(valuation_info)}\n"
+                    
+                    text += "\n"
+                else:
+                    # Fallback equal-weight allocation
+                    # Get valuation data from results_df
+                    stock_data = results_df[results_df['Ticker'] == alloc['ticker']].iloc[0] if len(results_df[results_df['Ticker'] == alloc['ticker']]) > 0 else None
+                    
+                    text += f"{i}. **{alloc['ticker']}** - ${alloc['dollar_allocation']:.0f} ({alloc['scaled_kelly']:.1%})\n"
+                    text += f"   - Equal Weight Allocation | Doubling Score: {alloc['doubling_score']}\n"
+                    text += f"   - Win Probability: {alloc['win_probability']:.1%} | Volatility: {alloc['volatility']:.1%}\n"
+                    text += f"   - Conservative Approach | Rebalance Monthly\n"
+                    
+                    # Add valuation metrics if available
+                    if stock_data is not None:
+                        valuation_info = []
+                        if stock_data['PE_Ratio'] > 0:
+                            pe_status = "Low" if stock_data['PE_Ratio'] < thresholds.get('pe_low', 20) else "Medium" if stock_data['PE_Ratio'] < thresholds.get('pe_medium', 30) else "High"
+                            valuation_info.append(f"PE: {stock_data['PE_Ratio']:.1f} ({pe_status})")
+                        
+                        if stock_data['PEG_Ratio'] > 0:
+                            peg_status = "Undervalued" if stock_data['PEG_Ratio'] < thresholds.get('peg_undervalued', 1) else "Fair" if stock_data['PEG_Ratio'] < thresholds.get('peg_fair', 2) else "Overvalued"
+                            valuation_info.append(f"PEG: {stock_data['PEG_Ratio']:.1f} ({peg_status})")
+                        
+                        if stock_data['Price_to_Sales'] > 0:
+                            ps_status = "Low" if stock_data['Price_to_Sales'] < thresholds.get('ps_low', 1) else "Medium" if stock_data['Price_to_Sales'] < thresholds.get('ps_medium', 3) else "High"
+                            valuation_info.append(f"P/S: {stock_data['Price_to_Sales']:.1f} ({ps_status})")
+                        
+                        if valuation_info:
+                            text += f"   - Valuation: {' | '.join(valuation_info)}\n"
+                    
+                    text += "\n"
     
         # Add Kelly Criterion Insights
         text += "## 💡 KELLY CRITERION INSIGHTS\n\n"
@@ -2219,6 +2623,50 @@ def post_results_to_reddit(results_df, options_found, portfolio_allocation=None,
             text += "• **Calmar Ratio (30%)**: Drawdown control and capital preservation\n"
             text += "• **Risk-Adjusted Kelly**: Kelly allocation weighted by unified score\n"
             text += "• **Short-term focus**: Designed for active trading strategies\n\n"
+        
+        # Add Valuation Analysis Section
+        text += "## 📊 STOCK VALUATION FRAMEWORK\n\n"
+        
+        text += "### 💰 Valuing Profitable Businesses\n\n"
+        text += "• **PE Ratio** = Share Price ÷ Earnings Per Share\n"
+        pe_low_display = thresholds.get('pe_low', 20) if thresholds else 20
+        pe_high_display = thresholds.get('pe_high', 30) if thresholds else 30
+        text += f"• **Low PE**: Below {pe_low_display:.1f} (potentially undervalued)\n"
+        text += f"• **Medium PE**: {pe_low_display:.1f}-{pe_high_display:.1f} (fairly valued)\n"
+        text += f"• **High PE**: Above {pe_high_display:.1f} (potentially overvalued)\n"
+        text += "• **Warning**: PE alone doesn't work for high-growth stocks\n\n"
+        
+        text += "### 🚀 Valuing High-Growth Businesses\n\n"
+        text += "• **PEG Ratio** = PE Ratio ÷ Expected Annual Earnings Growth Rate\n"
+        peg_undervalued_display = thresholds.get('peg_undervalued', 1) if thresholds else 1
+        peg_overvalued_display = thresholds.get('peg_overvalued', 2) if thresholds else 2
+        text += f"• **PEG < {peg_undervalued_display:.1f}**: Undervalued (growth justifies high PE)\n"
+        text += f"• **PEG {peg_undervalued_display:.1f}-{peg_overvalued_display:.1f}**: Fairly valued\n"
+        text += f"• **PEG > {peg_overvalued_display:.1f}**: Overvalued (growth doesn't justify PE)\n"
+        text += "• **Key Insight**: High PE is acceptable if PEG is low\n\n"
+        
+        text += "### 📈 Price-to-Growth Ratio Usage\n\n"
+        text += "• **Growth-Adjusted Valuation**: PEG accounts for future earnings potential\n"
+        text += "• **Growth Rate Quality**: Use analyst estimates or historical growth\n"
+        text += "• **Industry Comparison**: Compare PEG within the same sector\n"
+        text += "• **Risk Assessment**: Higher growth rates may be less sustainable\n"
+        text += "• **Combined Analysis**: Use with PE ratio for complete picture\n\n"
+        
+        text += "### 💸 Valuing Loss-Making Businesses\n\n"
+        text += "• **Price-to-Sales Ratio** = Market Cap ÷ Annual Revenue\n"
+        text += "• **Alternative Metric**: When PE and PEG don't apply\n"
+        ps_low_display = thresholds.get('ps_low', 1) if thresholds else 1
+        ps_high_display = thresholds.get('ps_high', 3) if thresholds else 3
+        text += f"• **Low P/S**: Below {ps_low_display:.1f} (potentially undervalued)\n"
+        text += f"• **Medium P/S**: {ps_low_display:.1f}-{ps_high_display:.1f} (fairly valued)\n"
+        text += f"• **High P/S**: Above {ps_high_display:.1f} (potentially overvalued)\n\n"
+        
+        text += "### 📊 Price-to-Sales Ratio Usage\n\n"
+        text += "• **Revenue Focus**: Values company based on sales, not earnings\n"
+        text += "• **Loss-Making Companies**: Essential for unprofitable businesses\n"
+        text += "• **Growth Stage**: Useful for companies reinvesting profits\n"
+        text += "• **Industry Variations**: Tech companies often have higher P/S ratios\n"
+        text += "• **Profit Margin Context**: Consider if high sales lead to future profits\n\n"
         
         # Add detailed options analysis
         if options_found:
@@ -2309,9 +2757,48 @@ def main():
         return
     
     results_df = pd.DataFrame(detailed_analysis)
+    
+    # Calculate dynamic valuation thresholds
+    thresholds = calculate_dynamic_valuation_thresholds(results_df)
+    
+    # Apply dynamic valuation scoring
+    for idx, row in results_df.iterrows():
+        doubling_score = row['Doubling_Score']
+        reasons = row['Reasons'].split(', ')
+        
+        # Dynamic valuation scoring
+        if row['PE_Ratio'] > 0 and row['PE_Ratio'] < thresholds['pe_low']:
+            doubling_score += 5
+            reasons.append("Low PE ratio")
+        elif row['PE_Ratio'] > 0 and row['PE_Ratio'] > thresholds['pe_high']:
+            doubling_score -= 5
+            reasons.append("High PE ratio")
+        
+        if row['PEG_Ratio'] > 0 and row['PEG_Ratio'] < thresholds['peg_undervalued']:
+            doubling_score += 10
+            reasons.append("Undervalued PEG")
+        elif row['PEG_Ratio'] > 0 and row['PEG_Ratio'] > thresholds['peg_overvalued']:
+            doubling_score -= 5
+            reasons.append("Overvalued PEG")
+        
+        if row['Price_to_Sales'] > 0 and row['Price_to_Sales'] < thresholds['ps_low']:
+            doubling_score += 5
+            reasons.append("Low P/S ratio")
+        elif row['Price_to_Sales'] > 0 and row['Price_to_Sales'] > thresholds['ps_high']:
+            doubling_score -= 5
+            reasons.append("High P/S ratio")
+        
+        # Update the row
+        results_df.at[idx, 'Doubling_Score'] = doubling_score
+        results_df.at[idx, 'Reasons'] = ', '.join(reasons)
+    
     results_df = results_df.sort_values('Doubling_Score', ascending=False)
     
     print(f"\n🔥 TOP DOUBLING CANDIDATES (Found {len(results_df)} stocks)")
+    print(f"📊 Dynamic Valuation Thresholds:")
+    print(f"   PE: Low < {thresholds['pe_low']:.1f}, High > {thresholds['pe_high']:.1f}")
+    print(f"   PEG: Undervalued < {thresholds['peg_undervalued']:.1f}, Overvalued > {thresholds['peg_overvalued']:.1f}")
+    print(f"   P/S: Low < {thresholds['ps_low']:.1f}, High > {thresholds['ps_high']:.1f}")
     print("=" * 100)
     
     display_columns = ['Ticker', 'Current_Price', 'Market_Cap', 'Doubling_Score', 
@@ -2354,6 +2841,11 @@ def main():
         scaling_factor=0.5  # Half-Kelly for reduced volatility
     )
     
+    # If Kelly doesn't find allocations, create a simple equal-weight allocation
+    if not portfolio_allocation['allocations']:
+        print("⚠️  No Kelly allocations found - creating equal-weight allocation based on doubling scores...")
+        portfolio_allocation = create_equal_weight_allocation(stocks_data, 1000, max_positions=5)
+    
     # Calculate risk metrics
     risk_metrics = calculate_risk_metrics(portfolio_allocation)
     
@@ -2375,6 +2867,11 @@ def main():
         risk_aversion=1.0    # Moderate risk aversion
     )
     
+    # If confidence-weighted Kelly doesn't find allocations, use the same equal-weight allocation
+    if not confidence_portfolio_allocation['allocations']:
+        print("⚠️  No confidence-weighted Kelly allocations found - using equal-weight allocation...")
+        confidence_portfolio_allocation = create_equal_weight_allocation(stocks_data, 1000, max_positions=5)
+    
     # Display confidence-weighted allocation results
     display_confidence_weighted_allocation(confidence_portfolio_allocation, portfolio_value=1000)
     
@@ -2389,11 +2886,19 @@ def main():
     
     print(f"  Standard Kelly: ${standard_allocated:.0f} allocated, {standard_positions} positions")
     print(f"  Confidence-Weighted: ${confidence_allocated:.0f} allocated, {confidence_positions} positions")
-    print(f"  Difference: ${confidence_allocated - standard_allocated:+.0f} ({((confidence_allocated/standard_allocated - 1)*100):+.1f}%)")
+    if standard_allocated > 0:
+        percent_change = ((confidence_allocated/standard_allocated - 1)*100)
+        print(f"  Difference: ${confidence_allocated - standard_allocated:+.0f} ({percent_change:+.1f}%)")
+    else:
+        print(f"  Difference: ${confidence_allocated - standard_allocated:+.0f} (N/A - no standard allocation)")
     
     if confidence_positions > 0:
-        avg_confidence = sum(alloc['confidence_factor'] for alloc in confidence_portfolio_allocation['allocations']) / confidence_positions
-        print(f"  Average Confidence Factor: {avg_confidence:.1%}")
+        # Check if this is a confidence-weighted allocation or fallback equal-weight allocation
+        if 'confidence_factor' in confidence_portfolio_allocation['allocations'][0]:
+            avg_confidence = sum(alloc['confidence_factor'] for alloc in confidence_portfolio_allocation['allocations']) / confidence_positions
+            print(f"  Average Confidence Factor: {avg_confidence:.1%}")
+        else:
+            print(f"  Average Confidence Factor: N/A (using equal-weight allocation)")
     
     # Additional Kelly analysis for different scaling factors
     print(f"\n📊 KELLY SCALING COMPARISON")
@@ -2437,6 +2942,11 @@ def main():
         risk_aversion=1.0
     )
     
+    # If Medallion-style doesn't find allocations, use the same equal-weight allocation
+    if not medallion_allocation['allocations']:
+        print("⚠️  No Medallion-style allocations found - using equal-weight allocation...")
+        medallion_allocation = create_equal_weight_allocation(stocks_data, 1000, max_positions=5)
+    
     # Display Medallion-style allocation results
     display_medallion_style_allocation(medallion_allocation, portfolio_value=1000)
     
@@ -2459,8 +2969,14 @@ def main():
     conf_diff = confidence_allocated - standard_allocated
     medallion_diff = medallion_allocated - standard_allocated
     
-    print(f"  Confidence vs Standard: ${conf_diff:+.0f} ({((confidence_allocated/standard_allocated - 1)*100):+.1f}%)")
-    print(f"  Medallion vs Standard: ${medallion_diff:+.0f} ({((medallion_allocated/standard_allocated - 1)*100):+.1f}%)")
+    if standard_allocated > 0:
+        conf_percent = ((confidence_allocated/standard_allocated - 1)*100)
+        medallion_percent = ((medallion_allocated/standard_allocated - 1)*100)
+        print(f"  Confidence vs Standard: ${conf_diff:+.0f} ({conf_percent:+.1f}%)")
+        print(f"  Medallion vs Standard: ${medallion_diff:+.0f} ({medallion_percent:+.1f}%)")
+    else:
+        print(f"  Confidence vs Standard: ${conf_diff:+.0f} (N/A - no standard allocation)")
+        print(f"  Medallion vs Standard: ${medallion_diff:+.0f} (N/A - no standard allocation)")
     
     # Show which approach is most conservative
     approaches = [
@@ -2738,7 +3254,7 @@ def main():
         all_options_found.extend(ultra_options)
     
     # Automatically post to Reddit with Kelly allocation data
-    post_results_to_reddit(results_df, all_options_found, portfolio_allocation, confidence_portfolio_allocation, medallion_allocation)
+    post_results_to_reddit(results_df, all_options_found, portfolio_allocation, confidence_portfolio_allocation, medallion_allocation, thresholds)
 
 if __name__ == "__main__":
     main()
