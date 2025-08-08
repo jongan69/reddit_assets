@@ -1,0 +1,23 @@
+[python]
+script_path = "."
+python_executable = "python3"
+modules = ["main", "crypto"]
+
+[api]
+yahoo_finance_timeout = 30
+finviz_timeout = 30
+coingecko_timeout = 30
+user_agent = "TradingBot/1.0"
+
+[trading]
+default_portfolio_value = 1000.0
+default_scaling_factor = 0.5
+max_positions = 10
+min_allocation = 10.0
+max_allocation_per_position = 0.2
+risk_free_rate = 0.05
+lookback_days = 252
+
+[database]
+url = "sqlite:trading_bot.db"
+max_connections = 5

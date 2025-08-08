@@ -1,0 +1,11 @@
+/Users/jonathangan/Desktop/reddit_assets/target/release/deps/socket2-1e0a9eb8012cd9b0.d: /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/lib.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockaddr.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/socket.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockref.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sys/unix.rs
+
+/Users/jonathangan/Desktop/reddit_assets/target/release/deps/libsocket2-1e0a9eb8012cd9b0.rlib: /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/lib.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockaddr.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/socket.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockref.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sys/unix.rs
+
+/Users/jonathangan/Desktop/reddit_assets/target/release/deps/libsocket2-1e0a9eb8012cd9b0.rmeta: /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/lib.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockaddr.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/socket.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockref.rs /Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sys/unix.rs
+
+/Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/lib.rs:
+/Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockaddr.rs:
+/Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/socket.rs:
+/Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sockref.rs:
+/Users/jonathangan/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.0/src/sys/unix.rs:
